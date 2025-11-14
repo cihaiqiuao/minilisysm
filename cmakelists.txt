@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.10)
+
+# 工程名随便起
+project(cpu_monitor LANGUAGES CXX)
+
+# C++ 标准
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# 打开一些常用警告（GCC / Clang）
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic -O2)
+endif()
+
+# 生成可执行文件，源文件都写上
+add_executable(cpu_monitor
+    main.cpp
+    cpu_monitor.cpp
+)

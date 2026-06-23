@@ -1,0 +1,7 @@
+build/
+build-asan/
+out/
+lisysm_events/
+*.user
+*.swp
+*.tmp

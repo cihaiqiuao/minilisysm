@@ -1,5 +1,5 @@
-#include "lisysm/spsc_ring_buffer.hpp"
-#include "lisysm/time.hpp"
+#include "lisysm/queue/spsc_ring_buffer.hpp"
+#include "lisysm/core/time.hpp"
 
 #include <iostream>
 

@@ -1,6 +1,6 @@
-#include "lisysm/event_store.hpp"
-#include "lisysm/thread_policy.hpp"
-#include "lisysm/time.hpp"
+#include "lisysm/storage/event_store.hpp"
+#include "lisysm/runtime/thread_policy.hpp"
+#include "lisysm/core/time.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -17,8 +17,8 @@
 namespace lisysm {
 namespace fs = std::filesystem;
 
-EventStore::EventStore(const MonitorConfig& config, SpscRingBuffer<InternalEvent>& queue)
-    : config_(config), queue_(queue), serializer_(config)
+EventStore::EventStore(const MonitorConfig& config, std::vector<SpscRingBuffer<InternalEvent>*>& queues)
+    : config_(config), queues_(queues), serializer_(config)
 {
 }
 
@@ -69,9 +69,20 @@ void EventStore::run()
         write_errors_.fetch_add(1);
     }
 
-    while (running_.load() || queue_.depth() > 0) {
+    size_t queue_index = 0;
+    std::string line;
+    line.reserve(1024);
+    while (running_.load()) {
         InternalEvent event;
-        if (!queue_.pop(event)) {
+        bool consumed = false;
+        for (size_t i = 0; i < queues_.size(); ++i) {
+            queue_index = (queue_index + 1) % queues_.size();
+            if (queues_[queue_index]->pop(event)) {
+                consumed = true;
+                break;
+            }
+        }
+        if (!consumed) {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
         }
@@ -79,7 +90,7 @@ void EventStore::run()
             write_errors_.fetch_add(1);
             continue;
         }
-        const std::string line = serializer_.to_json_line(event);
+        serializer_.to_json_line(event, line);
         stream_ << line;
         if (!stream_) {
             write_errors_.fetch_add(1);
@@ -92,6 +103,32 @@ void EventStore::run()
         rotate_if_needed();
         enforce_cache_limit();
     }
+    bool drained = false;
+    do {
+        drained = false;
+        for (SpscRingBuffer<InternalEvent>* queue : queues_) {
+            InternalEvent event;
+            while (queue->pop(event)) {
+                drained = true;
+                if (!stream_.is_open() && !open_next_file()) {
+                    write_errors_.fetch_add(1);
+                    continue;
+                }
+                serializer_.to_json_line(event, line);
+                stream_ << line;
+                if (!stream_) {
+                    write_errors_.fetch_add(1);
+                    stream_.close();
+                    continue;
+                }
+                current_size_ += line.size();
+                written_events_.fetch_add(1);
+                fsync_if_allowed(event.level);
+                rotate_if_needed();
+                enforce_cache_limit();
+            }
+        }
+    } while (drained);
 }
 
 bool EventStore::open_next_file()

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "lisysm/event.hpp"
+#include "lisysm/core/event.hpp"
 
 #include <atomic>
 #include <cstddef>

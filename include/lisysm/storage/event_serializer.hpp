@@ -1,7 +1,7 @@
 #pragma once
 
-#include "lisysm/config.hpp"
-#include "lisysm/event.hpp"
+#include "lisysm/core/config.hpp"
+#include "lisysm/core/event.hpp"
 
 #include <string>
 
@@ -11,6 +11,7 @@ class EventSerializer {
 public:
     explicit EventSerializer(const MonitorConfig& config);
     std::string to_json_line(const InternalEvent& event) const;
+    void to_json_line(const InternalEvent& event, std::string& output) const;
 
 private:
     const MonitorConfig& config_;

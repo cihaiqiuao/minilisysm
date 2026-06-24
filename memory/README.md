@@ -5,6 +5,7 @@
 当前索引：
 
 - [2026-06-23-completed-baseline.md](2026-06-23-completed-baseline.md)：当前已完成的工程内容、验证结果、修复点和后续风险。
+- [2026-06-23-self-protection-sched-delay.md](2026-06-23-self-protection-sched-delay.md)：新增自身保护规则和调度延迟规则的实现与验证记录。
 
 约束：
 

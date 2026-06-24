@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace lisysm {
 
@@ -16,8 +17,10 @@ struct MonitorConfig {
     uint32_t low_freq_collect_interval_ms{10000};
 
     int fast_collector_cpu{-1};
+    int sched_collector_cpu{-1};
     int persist_thread_cpu{-1};
     int fast_collector_nice{5};
+    int sched_collector_nice{8};
     int background_nice{10};
 
     size_t event_queue_capacity{4096};
@@ -33,8 +36,27 @@ struct MonitorConfig {
     uint32_t continuous_critical_windows{2};
     uint32_t recovery_windows{3};
     uint32_t cooldown_sec{60};
+
+    bool self_protection_enable{true};
+    uint32_t queue_warning_percent{70};
+    uint32_t queue_critical_percent{90};
+    uint32_t queue_recovery_percent{50};
+    uint32_t self_recovery_windows{3};
     uint64_t self_rss_soft_limit_mb{40};
     uint64_t self_rss_hard_limit_mb{64};
+    uint64_t self_rss_recovery_mb{32};
+
+    bool sched_delay_enable{true};
+    std::vector<std::string> sched_process_whitelist{};
+    std::vector<std::string> sched_thread_whitelist{};
+    uint64_t sched_wait_sum_warning_us{10000};
+    uint64_t sched_wait_sum_critical_us{30000};
+    uint64_t sched_wait_sum_recovery_us{5000};
+    uint64_t sched_involuntary_switch_warning{100};
+    uint32_t sched_continuous_warning_windows{3};
+    uint32_t sched_continuous_critical_windows{2};
+    uint32_t sched_recovery_windows{3};
+    uint32_t sched_max_targets{32};
 
     bool persistence_enable{true};
     std::string cache_path{"./lisysm_events"};

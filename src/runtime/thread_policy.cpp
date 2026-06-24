@@ -1,4 +1,4 @@
-#include "lisysm/thread_policy.hpp"
+#include "lisysm/runtime/thread_policy.hpp"
 
 #include <cerrno>
 #include <cstring>

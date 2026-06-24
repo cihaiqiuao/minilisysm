@@ -28,6 +28,8 @@ enum class EventType : uint32_t {
     QueuePressure = 4,
     StoragePressure = 5,
     CollectorFailure = 6,
+    MonitorMemoryPressure = 7,
+    SchedDelayRisk = 8,
 };
 
 struct EvidenceItem {

@@ -1,15 +1,16 @@
 #pragma once
 
-#include "lisysm/config.hpp"
-#include "lisysm/event.hpp"
-#include "lisysm/event_serializer.hpp"
-#include "lisysm/spsc_ring_buffer.hpp"
+#include "lisysm/core/config.hpp"
+#include "lisysm/core/event.hpp"
+#include "lisysm/storage/event_serializer.hpp"
+#include "lisysm/queue/spsc_ring_buffer.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace lisysm {
 
@@ -22,7 +23,7 @@ struct StoreStats {
 
 class EventStore {
 public:
-    EventStore(const MonitorConfig& config, SpscRingBuffer<InternalEvent>& queue);
+    EventStore(const MonitorConfig& config, std::vector<SpscRingBuffer<InternalEvent>*>& queues);
     ~EventStore();
 
     EventStore(const EventStore&) = delete;
@@ -40,7 +41,7 @@ private:
     void enforce_cache_limit();
 
     const MonitorConfig& config_;
-    SpscRingBuffer<InternalEvent>& queue_;
+    std::vector<SpscRingBuffer<InternalEvent>*>& queues_;
     EventSerializer serializer_;
     std::atomic<bool> running_{false};
     std::thread worker_;

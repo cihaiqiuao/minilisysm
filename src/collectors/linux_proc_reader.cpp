@@ -1,4 +1,4 @@
-#include "lisysm/linux_proc_reader.hpp"
+#include "lisysm/collectors/linux_proc_reader.hpp"
 
 #include <algorithm>
 #include <cstdio>

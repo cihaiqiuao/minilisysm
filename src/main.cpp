@@ -1,5 +1,5 @@
-#include "lisysm/config.hpp"
-#include "lisysm/monitor.hpp"
+#include "lisysm/core/config.hpp"
+#include "lisysm/runtime/monitor.hpp"
 
 #include <atomic>
 #include <chrono>

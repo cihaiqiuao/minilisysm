@@ -1,4 +1,4 @@
-#include "lisysm/spsc_ring_buffer.hpp"
+#include "lisysm/queue/spsc_ring_buffer.hpp"
 
 #include <cstdlib>
 #include <iostream>

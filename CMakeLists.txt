@@ -9,15 +9,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(minilisysm_core
-    src/config.cpp
-    src/event_serializer.cpp
-    src/event_store.cpp
-    src/linux_proc_reader.cpp
-    src/meminfo_collector.cpp
-    src/monitor.cpp
-    src/rule_engine.cpp
-    src/thread_policy.cpp
-    src/time.cpp
+    src/core/config.cpp
+    src/core/time.cpp
+    src/collectors/collector_factory.cpp
+    src/collectors/linux_proc_reader.cpp
+    src/collectors/meminfo_collector.cpp
+    src/collectors/sched_delay_collector.cpp
+    src/collectors/self_status_collector.cpp
+    src/rules/rule_factory.cpp
+    src/rules/rule_engine.cpp
+    src/runtime/monitor.cpp
+    src/runtime/thread_policy.cpp
+    src/storage/event_serializer.cpp
+    src/storage/event_store.cpp
+    src/storage/storage_factory.cpp
 )
 
 target_include_directories(minilisysm_core PUBLIC
@@ -40,6 +45,14 @@ if(MINILISYSM_BUILD_TESTS)
     add_executable(test_rule_engine tests/test_rule_engine.cpp)
     target_link_libraries(test_rule_engine PRIVATE minilisysm_core)
     add_test(NAME rule_engine COMMAND test_rule_engine)
+
+    add_executable(test_factories tests/test_factories.cpp)
+    target_link_libraries(test_factories PRIVATE minilisysm_core)
+    add_test(NAME factories COMMAND test_factories)
+
+    add_executable(test_event_serializer tests/test_event_serializer.cpp)
+    target_link_libraries(test_event_serializer PRIVATE minilisysm_core)
+    add_test(NAME event_serializer COMMAND test_event_serializer)
 endif()
 
 if(MINILISYSM_BUILD_TOOLS)

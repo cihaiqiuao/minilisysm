@@ -1,4 +1,4 @@
-#include "lisysm/config.hpp"
+#include "lisysm/core/config.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -8,6 +8,7 @@
 #include <string_view>
 #include <system_error>
 #include <unordered_map>
+#include <vector>
 
 namespace lisysm {
 namespace {
@@ -110,6 +111,31 @@ void assign_string(const Ini& ini, const char* section, const char* key, std::st
     }
 }
 
+std::vector<std::string> split_csv(std::string_view value)
+{
+    std::vector<std::string> result;
+    while (!value.empty()) {
+        const size_t comma = value.find(',');
+        std::string item = comma == std::string_view::npos ? trim(value) : trim(value.substr(0, comma));
+        if (!item.empty()) {
+            result.push_back(item);
+        }
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        value.remove_prefix(comma + 1);
+    }
+    return result;
+}
+
+void assign_csv(const Ini& ini, const char* section, const char* key, std::vector<std::string>& target)
+{
+    const std::string* value = find_value(ini, section, key);
+    if (value) {
+        target = split_csv(*value);
+    }
+}
+
 } // namespace
 
 MonitorConfig ConfigLoader::load_or_default(const std::string& path)
@@ -126,8 +152,10 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_int(ini, "linux_stability_monitor", "low_freq_collect_interval_ms", config.low_freq_collect_interval_ms);
 
     assign_int(ini, "thread_policy", "fast_collector_cpu", config.fast_collector_cpu);
+    assign_int(ini, "thread_policy", "sched_collector_cpu", config.sched_collector_cpu);
     assign_int(ini, "thread_policy", "persist_thread_cpu", config.persist_thread_cpu);
     assign_int(ini, "thread_policy", "fast_collector_nice", config.fast_collector_nice);
+    assign_int(ini, "thread_policy", "sched_collector_nice", config.sched_collector_nice);
     assign_int(ini, "thread_policy", "background_nice", config.background_nice);
 
     assign_int(ini, "event_queue", "capacity", config.event_queue_capacity);
@@ -143,8 +171,27 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_int(ini, "memory_rule", "continuous_critical_windows", config.continuous_critical_windows);
     assign_int(ini, "memory_rule", "recovery_windows", config.recovery_windows);
     assign_int(ini, "memory_rule", "cooldown_sec", config.cooldown_sec);
-    assign_int(ini, "memory_rule", "self_rss_soft_limit_mb", config.self_rss_soft_limit_mb);
-    assign_int(ini, "memory_rule", "self_rss_hard_limit_mb", config.self_rss_hard_limit_mb);
+
+    assign_bool(ini, "self_protection", "enable", config.self_protection_enable);
+    assign_int(ini, "self_protection", "queue_warning_percent", config.queue_warning_percent);
+    assign_int(ini, "self_protection", "queue_critical_percent", config.queue_critical_percent);
+    assign_int(ini, "self_protection", "queue_recovery_percent", config.queue_recovery_percent);
+    assign_int(ini, "self_protection", "self_recovery_windows", config.self_recovery_windows);
+    assign_int(ini, "self_protection", "self_rss_soft_limit_mb", config.self_rss_soft_limit_mb);
+    assign_int(ini, "self_protection", "self_rss_hard_limit_mb", config.self_rss_hard_limit_mb);
+    assign_int(ini, "self_protection", "self_rss_recovery_mb", config.self_rss_recovery_mb);
+
+    assign_bool(ini, "sched_delay_rule", "enable", config.sched_delay_enable);
+    assign_csv(ini, "sched_delay_rule", "process_whitelist", config.sched_process_whitelist);
+    assign_csv(ini, "sched_delay_rule", "thread_whitelist", config.sched_thread_whitelist);
+    assign_int(ini, "sched_delay_rule", "wait_sum_warning_us", config.sched_wait_sum_warning_us);
+    assign_int(ini, "sched_delay_rule", "wait_sum_critical_us", config.sched_wait_sum_critical_us);
+    assign_int(ini, "sched_delay_rule", "wait_sum_recovery_us", config.sched_wait_sum_recovery_us);
+    assign_int(ini, "sched_delay_rule", "involuntary_switch_warning", config.sched_involuntary_switch_warning);
+    assign_int(ini, "sched_delay_rule", "continuous_warning_windows", config.sched_continuous_warning_windows);
+    assign_int(ini, "sched_delay_rule", "continuous_critical_windows", config.sched_continuous_critical_windows);
+    assign_int(ini, "sched_delay_rule", "recovery_windows", config.sched_recovery_windows);
+    assign_int(ini, "sched_delay_rule", "max_targets", config.sched_max_targets);
 
     assign_bool(ini, "persistence", "enable", config.persistence_enable);
     assign_string(ini, "persistence", "cache_path", config.cache_path);
@@ -175,6 +222,27 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error)
     }
     if (config.mem_available_recovery_mb < config.mem_available_warning_mb) {
         config.mem_available_recovery_mb = config.mem_available_warning_mb;
+    }
+    if (config.queue_critical_percent < config.queue_warning_percent) {
+        config.queue_critical_percent = config.queue_warning_percent;
+    }
+    if (config.queue_recovery_percent > config.queue_warning_percent) {
+        config.queue_recovery_percent = config.queue_warning_percent;
+    }
+    if (config.self_rss_hard_limit_mb < config.self_rss_soft_limit_mb) {
+        config.self_rss_hard_limit_mb = config.self_rss_soft_limit_mb;
+    }
+    if (config.self_rss_recovery_mb > config.self_rss_soft_limit_mb) {
+        config.self_rss_recovery_mb = config.self_rss_soft_limit_mb;
+    }
+    if (config.sched_wait_sum_critical_us < config.sched_wait_sum_warning_us) {
+        config.sched_wait_sum_critical_us = config.sched_wait_sum_warning_us;
+    }
+    if (config.sched_wait_sum_recovery_us > config.sched_wait_sum_warning_us) {
+        config.sched_wait_sum_recovery_us = config.sched_wait_sum_warning_us;
+    }
+    if (config.sched_max_targets == 0) {
+        config.sched_max_targets = 1;
     }
     if (config.cache_max_mb == 0) {
         config.cache_max_mb = 1;

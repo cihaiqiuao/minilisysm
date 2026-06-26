@@ -1,18 +1,18 @@
-# 2026-06-23 Buffer Reuse and Collector Failure Events
+# 2026-06-23 Buffer 复用与采集器失败事件
 
-## Completed
+## 已完成
 
-- Added reusable JSONL serialization buffer support in `EventSerializer`.
-- Updated `EventStore` to reuse one `std::string` buffer inside the persistence worker instead of creating a new JSON line string for each event.
-- Added `CollectorFailure` event publishing in `Monitor` for invalid fast-path collector samples.
-- Added rate limiting for collector failure events to avoid flooding the event queue.
-- Added sched-delay scan failure counting for directory-level failures while ignoring normal per-thread `/proc` races.
-- Added `test_event_serializer` to cover reusable serialization and collector failure JSON output.
+- 在 `EventSerializer` 中增加可复用 JSONL 序列化 buffer 支持。
+- 更新 `EventStore`，在持久化 worker 内复用一个 `std::string` buffer，避免每条事件都创建新的 JSON 行字符串。
+- 在 `Monitor` 中为无效的快速路径 collector sample 增加 `CollectorFailure` 事件发布。
+- 为 collector failure 事件增加限频，避免异常时刷爆事件队列。
+- 增加调度延迟扫描失败计数：统计目录级失败，同时忽略正常的单线程 `/proc` 竞争。
+- 增加 `test_event_serializer`，覆盖可复用序列化和 collector failure JSON 输出。
 
-## Validation
+## 验证
 
-- `cmake --build build` passed.
-- `ctest --test-dir build --output-on-failure` passed, 4/4.
-- `cmake --build build-asan` passed.
-- `ctest --test-dir build-asan --output-on-failure` passed, 4/4.
-- A short smoke run wrote `monitor_started` JSONL and did not emit false `CollectorFailure` events.
+- `cmake --build build` 通过。
+- `ctest --test-dir build --output-on-failure` 通过，4/4。
+- `cmake --build build-asan` 通过。
+- `ctest --test-dir build-asan --output-on-failure` 通过，4/4。
+- 短时间 smoke run 成功写出 `monitor_started` JSONL，且没有误报 `CollectorFailure` 事件。

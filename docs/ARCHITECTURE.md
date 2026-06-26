@@ -1,54 +1,61 @@
-# Linux Stability Monitor Architecture
+# Linux 稳定性监控架构
 
 ## 目标边界
 
-当前实现是方案的工程化初版，优先完成低风险、可扩展、可验证的基础链路：
+当前实现是 Linux 稳定性监控链路的工程化初版，重点是低风险、可扩展、可验证：
 
 - 配置加载与校验。
 - 轻量 `/proc` 指标采集。
+- 可选 eBPF 调度延迟采集。
+- 块设备 I/O 堵塞检测。
 - 状态机规则判断。
 - 固定大小内部事件。
 - SPSC 有界队列。
 - 后台 JSONL 滚动持久化。
-- 单元测试与队列 benchmark。
+- 单元测试、benchmark 和一键验证脚本。
 
-暂不在快速路径中实现网络上传、压缩、复杂 JSON 构造和 eBPF 用户态消费，这些能力应作为后台模块或独立 collector 逐步接入。
+## 工程分层
 
-## 目录职责
+- `apps/minilisysm-agent/`：守护进程入口，只负责配置加载、信号处理和启动 `Monitor`。
+- `include/minilisysm/`：核心库公共接口，按 `core`、`collectors`、`rules`、`queue`、`storage`、`runtime` 分层。
+- `src/`：核心库实现，与公共接口模块对应。
+- `ebpf/`：独立 eBPF 模块，包含 BPF 程序、libbpf 用户态 collector 和生成的 skeleton 接入。
+- `configs/`：目标平台可调整参数，默认值保守。
+- `tests/unit/`：不依赖真实目标机的基础单元测试。
+- `tools/bench/`：性能与压测工具，当前包含 SPSC push/pop benchmark。
+- `scripts/`：Ubuntu/WSL 依赖安装、构建和验证入口。
+- `cmake/`：CMake 选项和编译器告警设置。
 
-- `include/lisysm/core/`：基础配置、事件模型和时间接口。
-- `include/lisysm/collectors/`：Linux 指标采集器。
-- `include/lisysm/rules/`：规则状态机、规则 ID 和规则事件构造。
-- `include/lisysm/queue/`：快速路径与后台路径之间的有界事件通道。
-- `include/lisysm/storage/`：事件序列化、文件滚动和本地缓存。
-- `include/lisysm/runtime/`：监控主循环、线程策略和模块编排。
-- `src/<module>/`：与公开头文件模块对应的实现目录。
-- `config/`：目标平台可调整参数，默认值保守。
-- `tests/`：不依赖 Linux `/proc` 的基础单元测试。
-- `tools/`：性能与压测工具，当前包含 SPSC push/pop benchmark。
-- `docs/`：工程约束、扩展说明和设计记录。
+## 运行链路
 
-## 快速路径
-
-快速路径由 `Monitor::collect_loop` 驱动：
-
-1. 调用 collector 读取轻量指标。
-2. 调用 `RuleEngine` 进行状态机判断。
-3. 构造 `InternalEvent`。
-4. 写入 `SpscRingBuffer`。
-
-当前有两个生产者 worker：
-
-- `fast_collector`：系统内存、自身 RSS、队列压力等轻量路径。
-- `sched_collector`：调度延迟扫描路径。
-
-两个 worker 各自拥有独立 SPSC 队列，后台 `EventStore` 线程轮询消费所有队列。这保留了 SPSC 的单生产者前提，也避免多个采集线程争用同一个 push 端。
+```text
+configs/*.ini
+    -> apps/minilisysm-agent
+       -> Monitor
+          -> fast_collector
+             -> MeminfoCollector / SelfStatusCollector / queue snapshot
+             -> fast RuleEngine
+             -> fast SpscRingBuffer<InternalEvent>
+          -> sched_collector
+             -> SchedDelayCollectorInterface
+             -> SchedDelayCollector(/proc) or EbpfSchedDelayCollector(optional)
+             -> IoDelayCollector(/proc/diskstats)
+             -> sched RuleEngine
+             -> sched SpscRingBuffer<InternalEvent>
+          -> EventDispatcherGroup
+             -> fast EventDispatcher
+             -> sched EventDispatcher
+             -> JsonlEventSink
+             -> events_*.jsonl
+```
 
 当前 collector：
 
 - `MeminfoCollector`：读取 `/proc/meminfo`，产出系统内存样本。
 - `SelfStatusCollector`：读取 `/proc/self/status`，产出监控模块自身 RSS。
 - `SchedDelayCollector`：读取 `/proc/<pid>/task/<tid>/sched`，产出调度等待和被动上下文切换增量。
+- `EbpfSchedDelayCollector`：可选 eBPF 调度延迟采集器，启用 `MINILISYSM_ENABLE_EBPF` 且配置 `source=ebpf` 后由工厂创建；加载失败时回退 `/proc` collector。
+- `IoDelayCollector`：读取 `/proc/diskstats`，按块设备计算平均 await、I/O 利用率和 in-flight 数。
 
 当前规则：
 
@@ -56,8 +63,20 @@
 - `SelfRssPressure`：监控模块自身 RSS 压力。
 - `QueuePressure`：事件队列拥塞和丢弃。
 - `SchedDelay`：目标线程调度等待风险。
+- `IoDelay`：块设备 I/O 堵塞风险。
 
-约束：
+## I/O 堵塞检测
+
+第一版 I/O 堵塞检测使用 `/proc/diskstats`，保持默认部署低依赖。collector 对每个设备保存上一次采样基线，并在下一轮计算：
+
+- `delta_io_count`：本轮完成的读写 I/O 数。
+- `avg_await_ms`：本轮读写耗时总和除以完成 I/O 数。
+- `util_percent`：本轮设备忙碌时间占采样间隔的比例。
+- `in_flight`：当前正在进行的 I/O 数。
+
+规则层通过 `[io_delay_rule]` 的 await 和 util 阈值判断 `io_delay_risk`。事件的 `target` 字段记录设备名，evidence 记录 I/O 数、util、in-flight 和最大观测 await。
+
+## 快速路径约束
 
 - 不进行磁盘写入。
 - 不进行网络访问。
@@ -67,61 +86,53 @@
 
 ## 后台路径
 
-`EventStore` 是当前后台消费者：
+`EventDispatcherGroup` 是采集队列后的分发层：
 
-1. 从 SPSC 队列读取事件。
-2. 使用 `EventSerializer` 转为 JSONL。
-3. 按大小滚动文件。
-4. 对 Critical 事件执行受限频率的 flush/fsync。
-5. 根据缓存容量上限清理旧文件。
+1. 为每条采集队列创建一个 `EventDispatcher`，例如 fast dispatcher 和 sched dispatcher。
+2. 为每个 dispatcher 到每个 sink 分配一条专属 SPSC 队列，保持单生产者单消费者约束。
+3. dispatcher 只消费自己的 source queue，并把事件 push 到各 sink 专属输入队列。
+4. 单条 sink 输入队列满时只记录 dispatcher 统计，不影响其他 sink 输入队列。
+5. 停止时先停止并 drain 各 dispatcher，再停止各 sink。
 
-## 线程与绑核
+`JsonlEventSink` 是当前唯一落地的 sink：
 
-线程策略来自 `[thread_policy]`：
+1. 持有来自各 dispatcher 的多条输入 SPSC 队列。
+2. 后台线程轮询这些输入队列，使用 `EventSerializer` 转为 JSONL。
+3. 复用一个 `std::string` 序列化 buffer。
+4. 按大小滚动文件。
+5. 对 Critical 事件执行受限频率的 flush/fsync。
+6. 根据缓存容量上限清理旧文件。
 
-- `fast_collector_cpu` / `fast_collector_nice`
-- `sched_collector_cpu` / `sched_collector_nice`
-- `persist_thread_cpu` / `background_nice`
+## eBPF 接入边界
 
-默认 CPU 为 `-1`，表示不绑核。目标平台明确实时核心和后台核心后，可以把快速采集、调度扫描和持久化线程放到不同 CPU，避免与主控制线程竞争。
+调度延迟 collector 通过 `SchedDelayCollectorInterface` 暴露统一接口：
 
-后续云端上传应从持久化文件读取批次，不应直接从采集线程发起请求。
+- 默认实现：`SchedDelayCollector`，使用 `/proc/<pid>/task/<tid>/sched`。
+- 可选实现：`EbpfSchedDelayCollector`，作为 eBPF 数据源接入点。
 
-## 新增采集器
-
-新增 collector 时建议遵守：
-
-- 初始化阶段打开稳定文件或检测能力。
-- 采集阶段复用缓冲区。
-- 使用 `std::string_view`、指针游标或 `std::from_chars`。
-- 失败时返回 invalid sample，不抛异常终止主流程。
-- 高开销采集器放到低频线程或后台线程。
-- 如果新增独立采集线程，应为它配置独立 SPSC 队列，或改用经过 benchmark 的有界 MPSC。
-
-## 新增规则
-
-新增规则时建议遵守：
-
-- 每条规则维护独立 `RuleContext`。
-- 使用 Warning/Critical/Recovery 状态机。
-- 触发阈值和恢复阈值分离。
-- 事件必须携带阈值、窗口、连续命中次数和 evidence。
-- 冷却、聚合和限频应在规则层或后台层实现，不能阻塞 collector。
+`CollectorFactory` 根据 `[sched_delay_rule] source` 和编译开关选择实现。eBPF 数据源应转换为现有 `SchedDelaySample`，继续复用 `RuleEngine::evaluate_sched_delay()`，不要复制一套规则状态机。
 
 ## 性能验证
 
 最低验证集：
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
-./build/bench_spsc
+./scripts/verify.sh
+./scripts/verify.sh --asan
+./scripts/verify.sh --ebpf
 ```
 
 目标 Linux 平台还需要补充：
 
 - `/proc` FD 复用与重复 open/close 对比。
-- 监控开启前后的控制周期 P99。
+- 监控开启前后的控制周期 P99/P999。
 - 持久化线程与上传线程 CPU affinity 验证。
 - fsync 频率和每小时写入字节数统计。
+## 接口边界
+
+`include/minilisysm/interfaces/` 是当前对外扩展边界，放置已经稳定下来的纯虚接口和跨实现数据结构。当前包括：
+
+- `EventSink` / `SinkStats`：事件最终消费目标接口，`JsonlEventSink` 和 `NetworkEventSink` 都实现它。
+- `SchedDelayCollectorInterface` / `SchedDelaySample` / `SchedDelayCollectorRuntimeStats`：调度延迟采集统一接口，`/proc` collector 和 eBPF collector 都实现它。
+
+`collectors/`、`storage/`、`runtime/` 仍然保存内置实现。本次只是把接口从实现目录中抽出来，不实现 `.so` 动态插件加载，也不承诺 C++ ABI 稳定。后续如果要支持用户自定义 collector 或 sink 插件，应在这个接口层基础上单独设计插件注册、版本检查、加载失败隔离和配置 schema。

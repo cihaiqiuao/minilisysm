@@ -1,4 +1,4 @@
-#include "lisysm/core/config.hpp"
+#include "minilisysm/core/config.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -111,6 +111,22 @@ void assign_string(const Ini& ini, const char* section, const char* key, std::st
     }
 }
 
+void assign_double(const Ini& ini, const char* section, const char* key, double& target)
+{
+    const std::string* value = find_value(ini, section, key);
+    if (!value) {
+        return;
+    }
+    try {
+        size_t parsed_chars = 0;
+        const double parsed = std::stod(*value, &parsed_chars);
+        if (parsed_chars == value->size()) {
+            target = parsed;
+        }
+    } catch (...) {
+    }
+}
+
 std::vector<std::string> split_csv(std::string_view value)
 {
     std::vector<std::string> result;
@@ -150,6 +166,14 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_string(ini, "linux_stability_monitor", "device_id", config.device_id);
     assign_int(ini, "linux_stability_monitor", "fast_collect_interval_ms", config.fast_collect_interval_ms);
     assign_int(ini, "linux_stability_monitor", "low_freq_collect_interval_ms", config.low_freq_collect_interval_ms);
+    assign_int(ini, "runtime", "dispatcher_idle_sleep_ms", config.dispatcher_idle_sleep_ms);
+    assign_int(ini, "runtime", "sink_idle_sleep_ms", config.sink_idle_sleep_ms);
+    assign_bool(ini, "metrics", "enable", config.metrics_enable);
+    assign_string(ini, "metrics", "bind_host", config.metrics_bind_host);
+    assign_int(ini, "metrics", "port", config.metrics_port);
+    assign_bool(ini, "metrics", "scrape_runtime", config.metrics_scrape_runtime);
+    assign_bool(ini, "metrics", "scrape_collectors", config.metrics_scrape_collectors);
+    assign_bool(ini, "metrics", "scrape_rule_state", config.metrics_scrape_rule_state);
 
     assign_int(ini, "thread_policy", "fast_collector_cpu", config.fast_collector_cpu);
     assign_int(ini, "thread_policy", "sched_collector_cpu", config.sched_collector_cpu);
@@ -182,16 +206,41 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_int(ini, "self_protection", "self_rss_recovery_mb", config.self_rss_recovery_mb);
 
     assign_bool(ini, "sched_delay_rule", "enable", config.sched_delay_enable);
+    assign_string(ini, "sched_delay_rule", "source", config.sched_delay_source);
     assign_csv(ini, "sched_delay_rule", "process_whitelist", config.sched_process_whitelist);
     assign_csv(ini, "sched_delay_rule", "thread_whitelist", config.sched_thread_whitelist);
     assign_int(ini, "sched_delay_rule", "wait_sum_warning_us", config.sched_wait_sum_warning_us);
     assign_int(ini, "sched_delay_rule", "wait_sum_critical_us", config.sched_wait_sum_critical_us);
     assign_int(ini, "sched_delay_rule", "wait_sum_recovery_us", config.sched_wait_sum_recovery_us);
+    assign_int(ini, "sched_delay_rule", "ebpf_min_wait_us", config.sched_ebpf_min_wait_us);
+    assign_int(ini, "sched_delay_rule", "ebpf_ringbuf_kb", config.sched_ebpf_ringbuf_kb);
+    assign_int(ini, "sched_delay_rule", "ebpf_max_events_per_poll", config.sched_ebpf_max_events_per_poll);
+    assign_bool(ini, "sched_delay_rule", "ebpf_lifecycle_enable", config.sched_ebpf_lifecycle_enable);
+    assign_int(ini, "sched_delay_rule", "ebpf_allowlist_refresh_ms", config.sched_ebpf_allowlist_refresh_ms);
+    assign_bool(ini, "sched_delay_rule", "ebpf_aggregate_enable", config.sched_ebpf_aggregate_enable);
+    assign_int(ini, "sched_delay_rule", "ebpf_aggregate_window_ms", config.sched_ebpf_aggregate_window_ms);
+    assign_int(ini, "sched_delay_rule", "ebpf_aggregate_max_entries", config.sched_ebpf_aggregate_max_entries);
+    assign_int(ini, "sched_delay_rule", "proc_cache_refresh_ms", config.sched_proc_cache_refresh_ms);
+    assign_int(ini, "sched_delay_rule", "proc_max_scan_threads", config.sched_proc_max_scan_threads);
+    assign_int(ini, "sched_delay_rule", "collector_overrun_warning_ms", config.sched_collector_overrun_warning_ms);
     assign_int(ini, "sched_delay_rule", "involuntary_switch_warning", config.sched_involuntary_switch_warning);
     assign_int(ini, "sched_delay_rule", "continuous_warning_windows", config.sched_continuous_warning_windows);
     assign_int(ini, "sched_delay_rule", "continuous_critical_windows", config.sched_continuous_critical_windows);
     assign_int(ini, "sched_delay_rule", "recovery_windows", config.sched_recovery_windows);
     assign_int(ini, "sched_delay_rule", "max_targets", config.sched_max_targets);
+
+    assign_bool(ini, "io_delay_rule", "enable", config.io_delay_enable);
+    assign_csv(ini, "io_delay_rule", "device_whitelist", config.io_device_whitelist);
+    assign_double(ini, "io_delay_rule", "await_warning_ms", config.io_await_warning_ms);
+    assign_double(ini, "io_delay_rule", "await_critical_ms", config.io_await_critical_ms);
+    assign_double(ini, "io_delay_rule", "await_recovery_ms", config.io_await_recovery_ms);
+    assign_double(ini, "io_delay_rule", "util_warning_percent", config.io_util_warning_percent);
+    assign_double(ini, "io_delay_rule", "util_critical_percent", config.io_util_critical_percent);
+    assign_double(ini, "io_delay_rule", "util_recovery_percent", config.io_util_recovery_percent);
+    assign_int(ini, "io_delay_rule", "continuous_warning_windows", config.io_continuous_warning_windows);
+    assign_int(ini, "io_delay_rule", "continuous_critical_windows", config.io_continuous_critical_windows);
+    assign_int(ini, "io_delay_rule", "recovery_windows", config.io_recovery_windows);
+    assign_int(ini, "io_delay_rule", "max_targets", config.io_max_targets);
 
     assign_bool(ini, "persistence", "enable", config.persistence_enable);
     assign_string(ini, "persistence", "cache_path", config.cache_path);
@@ -199,6 +248,18 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_int(ini, "persistence", "file_rotate_mb", config.file_rotate_mb);
     assign_bool(ini, "persistence", "critical_fsync", config.critical_fsync);
     assign_int(ini, "persistence", "max_fsync_per_minute", config.max_fsync_per_minute);
+
+    assign_bool(ini, "network_sink", "enable", config.network_sink_enable);
+    assign_string(ini, "network_sink", "endpoint", config.network_endpoint);
+    assign_int(ini, "network_sink", "batch_size", config.network_batch_size);
+    assign_int(ini, "network_sink", "flush_interval_ms", config.network_flush_interval_ms);
+    assign_int(ini, "network_sink", "connect_timeout_ms", config.network_connect_timeout_ms);
+    assign_int(ini, "network_sink", "request_timeout_ms", config.network_request_timeout_ms);
+    assign_int(ini, "network_sink", "retry_base_ms", config.network_retry_base_ms);
+    assign_int(ini, "network_sink", "retry_max_ms", config.network_retry_max_ms);
+    assign_string(ini, "network_sink", "wal_path", config.network_wal_path);
+    assign_int(ini, "network_sink", "wal_max_mb", config.network_wal_max_mb);
+    assign_int(ini, "network_sink", "wal_segment_mb", config.network_wal_segment_mb);
 
     std::string ignored;
     validate(config, &ignored);
@@ -210,8 +271,20 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error)
     if (config.fast_collect_interval_ms < 100) {
         config.fast_collect_interval_ms = 100;
     }
+    if (config.dispatcher_idle_sleep_ms == 0) {
+        config.dispatcher_idle_sleep_ms = 1;
+    }
+    if (config.sink_idle_sleep_ms == 0) {
+        config.sink_idle_sleep_ms = 1;
+    }
+    if (config.metrics_port == 0) {
+        config.metrics_enable = false;
+    }
     if (config.event_queue_capacity < 16) {
         config.event_queue_capacity = 16;
+    }
+    if (config.critical_reserved_slots >= config.event_queue_capacity) {
+        config.critical_reserved_slots = config.event_queue_capacity - 1;
     }
     if (config.mem_available_critical_mb > config.mem_available_warning_mb) {
         if (error) {
@@ -238,17 +311,80 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error)
     if (config.sched_wait_sum_critical_us < config.sched_wait_sum_warning_us) {
         config.sched_wait_sum_critical_us = config.sched_wait_sum_warning_us;
     }
+    if (config.sched_ebpf_min_wait_us == 0) {
+        config.sched_ebpf_min_wait_us = config.sched_wait_sum_warning_us;
+    }
+    if (config.sched_ebpf_ringbuf_kb < 64) {
+        config.sched_ebpf_ringbuf_kb = 64;
+    }
+    if (config.sched_ebpf_max_events_per_poll == 0) {
+        config.sched_ebpf_max_events_per_poll = 1;
+    }
+    if (config.sched_ebpf_allowlist_refresh_ms == 0) {
+        config.sched_ebpf_allowlist_refresh_ms = config.sched_proc_cache_refresh_ms;
+    }
+    if (config.sched_ebpf_aggregate_window_ms == 0) {
+        config.sched_ebpf_aggregate_window_ms = 1;
+    }
+    if (config.sched_ebpf_aggregate_max_entries < 16) {
+        config.sched_ebpf_aggregate_max_entries = 16;
+    }
+    if (config.sched_proc_cache_refresh_ms == 0) {
+        config.sched_proc_cache_refresh_ms = config.low_freq_collect_interval_ms;
+    }
+    if (config.sched_proc_max_scan_threads == 0) {
+        config.sched_proc_max_scan_threads = 1;
+    }
+    if (config.sched_collector_overrun_warning_ms == 0) {
+        config.sched_collector_overrun_warning_ms = 1;
+    }
+    if (config.sched_delay_source != "proc" && config.sched_delay_source != "ebpf") {
+        config.sched_delay_source = "proc";
+    }
     if (config.sched_wait_sum_recovery_us > config.sched_wait_sum_warning_us) {
         config.sched_wait_sum_recovery_us = config.sched_wait_sum_warning_us;
     }
     if (config.sched_max_targets == 0) {
         config.sched_max_targets = 1;
     }
+    if (config.io_await_critical_ms < config.io_await_warning_ms) {
+        config.io_await_critical_ms = config.io_await_warning_ms;
+    }
+    if (config.io_await_recovery_ms > config.io_await_warning_ms) {
+        config.io_await_recovery_ms = config.io_await_warning_ms;
+    }
+    if (config.io_util_critical_percent < config.io_util_warning_percent) {
+        config.io_util_critical_percent = config.io_util_warning_percent;
+    }
+    if (config.io_util_recovery_percent > config.io_util_warning_percent) {
+        config.io_util_recovery_percent = config.io_util_warning_percent;
+    }
+    if (config.io_max_targets == 0) {
+        config.io_max_targets = 1;
+    }
     if (config.cache_max_mb == 0) {
         config.cache_max_mb = 1;
     }
     if (config.file_rotate_mb == 0 || config.file_rotate_mb > config.cache_max_mb) {
         config.file_rotate_mb = std::max<uint64_t>(1, std::min<uint64_t>(4, config.cache_max_mb));
+    }
+    if (config.network_batch_size == 0) {
+        config.network_batch_size = 1;
+    }
+    if (config.network_flush_interval_ms == 0) {
+        config.network_flush_interval_ms = 1;
+    }
+    if (config.network_retry_base_ms == 0) {
+        config.network_retry_base_ms = 1;
+    }
+    if (config.network_retry_max_ms < config.network_retry_base_ms) {
+        config.network_retry_max_ms = config.network_retry_base_ms;
+    }
+    if (config.network_wal_max_mb == 0) {
+        config.network_wal_max_mb = 1;
+    }
+    if (config.network_wal_segment_mb == 0 || config.network_wal_segment_mb > config.network_wal_max_mb) {
+        config.network_wal_segment_mb = std::min<uint64_t>(4, config.network_wal_max_mb);
     }
     return true;
 }

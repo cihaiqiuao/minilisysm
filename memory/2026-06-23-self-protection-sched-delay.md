@@ -1,6 +1,6 @@
-# 2026-06-23 Self Protection And Sched Delay Rules
+# 2026-06-23 自身保护与调度延迟规则
 
-Workspace: `E:\minilisysm`
+工作目录：`E:\minilisysm`
 
 ## 新增实现
 
@@ -57,7 +57,7 @@ Workspace: `E:\minilisysm`
 
 ## 目录结构调整
 
-项目从扁平的 `include/lisysm/*.hpp` 和 `src/*.cpp` 调整为按模块分层：
+项目从扁平的 `include/minilisysm/*.hpp` 和 `src/*.cpp` 调整为按模块分层：
 
 - `core`：配置、事件模型、时间。
 - `collectors`：`/proc` 和后续 Linux 指标采集器。

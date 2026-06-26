@@ -1,4 +1,4 @@
-#include "lisysm/collectors/self_status_collector.hpp"
+﻿#include "minilisysm/collectors/self_status_collector.hpp"
 
 #include <charconv>
 #include <cstring>

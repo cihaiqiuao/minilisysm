@@ -1,5 +1,6 @@
 build/
 build-asan/
+build-ebpf/
 out/
 lisysm_events/
 *.user

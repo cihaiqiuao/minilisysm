@@ -1,6 +1,6 @@
-#include "lisysm/rules/rule_factory.hpp"
+﻿#include "minilisysm/rules/rule_factory.hpp"
 
-#include "lisysm/rules/rule_engine.hpp"
+#include "minilisysm/rules/rule_engine.hpp"
 
 namespace lisysm {
 

@@ -1,4 +1,4 @@
-#include "lisysm/storage/event_serializer.hpp"
+﻿#include "minilisysm/storage/event_serializer.hpp"
 
 #include <charconv>
 #include <cstdio>
@@ -85,6 +85,7 @@ const char* to_string(EventType type)
     case EventType::CollectorFailure: return "monitor_collector_failure";
     case EventType::MonitorMemoryPressure: return "monitor_memory_pressure";
     case EventType::SchedDelayRisk: return "sched_delay_risk";
+    case EventType::IoDelayRisk: return "io_delay_risk";
     }
     return "unknown";
 }
@@ -143,6 +144,8 @@ void EventSerializer::to_json_line(const InternalEvent& event, std::string& outp
     append_json_string(output, to_string(event.level));
     append_field_name(output, "status");
     append_json_string(output, to_string(event.status));
+    append_field_name(output, "target");
+    append_json_string(output, event.target.data());
     append_field_name(output, "pid");
     append_integer(output, event.pid);
     append_field_name(output, "tid");

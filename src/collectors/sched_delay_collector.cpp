@@ -1,6 +1,7 @@
-#include "lisysm/collectors/sched_delay_collector.hpp"
+﻿#include "minilisysm/collectors/sched_delay_collector.hpp"
 
 #include <charconv>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -66,6 +67,7 @@ SchedDelayCollector::SchedDelayCollector(const MonitorConfig& config) : config_(
 
 std::vector<SchedDelaySample> SchedDelayCollector::collect()
 {
+    const auto collect_start = std::chrono::steady_clock::now();
     std::vector<SchedDelaySample> samples;
     last_failure_count_ = 0;
     if (!config_.sched_delay_enable) {
@@ -78,6 +80,7 @@ std::vector<SchedDelaySample> SchedDelayCollector::collect()
         ++last_failure_count_;
         return samples;
     }
+    uint32_t scanned_threads = 0;
     for (const auto& proc : proc_iter) {
         if (!proc.is_directory()) {
             continue;
@@ -87,8 +90,15 @@ std::vector<SchedDelaySample> SchedDelayCollector::collect()
         if (!parse_i32(pid_text, &pid)) {
             continue;
         }
+        if (!should_consider_process_id(pid)) {
+            continue;
+        }
         std::string process_comm;
-        if (!read_comm((proc.path() / "comm").string(), &process_comm)) {
+        if (!cached_comm(
+                static_cast<uint64_t>(static_cast<uint32_t>(pid)),
+                (proc.path() / "comm").string(),
+                process_comm_cache_,
+                &process_comm)) {
             continue;
         }
         if (!should_scan_process(pid, process_comm)) {
@@ -104,6 +114,20 @@ std::vector<SchedDelaySample> SchedDelayCollector::collect()
         }
         for (const auto& task : task_iter) {
             if (samples.size() >= config_.sched_max_targets) {
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - collect_start);
+                if (elapsed.count() > config_.sched_collector_overrun_warning_ms) {
+                    ++last_failure_count_;
+                }
+                return samples;
+            }
+            if (scanned_threads >= config_.sched_proc_max_scan_threads) {
+                ++last_failure_count_;
+                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - collect_start);
+                if (elapsed.count() > config_.sched_collector_overrun_warning_ms) {
+                    ++last_failure_count_;
+                }
                 return samples;
             }
             int32_t tid = -1;
@@ -111,12 +135,19 @@ std::vector<SchedDelaySample> SchedDelayCollector::collect()
             if (!parse_i32(tid_text, &tid)) {
                 continue;
             }
-            std::string thread_comm;
-            if (!read_comm((task.path() / "comm").string(), &thread_comm)) {
-                continue;
-            }
-            if (!should_scan_thread(thread_comm)) {
-                continue;
+            ++scanned_threads;
+            if (!config_.sched_thread_whitelist.empty()) {
+                std::string thread_comm;
+                if (!cached_comm(
+                        key_for(pid, tid),
+                        (task.path() / "comm").string(),
+                        thread_comm_cache_,
+                        &thread_comm)) {
+                    continue;
+                }
+                if (!should_scan_thread(thread_comm)) {
+                    continue;
+                }
             }
 
             uint64_t wait_sum_us = 0;
@@ -138,11 +169,33 @@ std::vector<SchedDelaySample> SchedDelayCollector::collect()
             sample.delta_wait_sum_us = wait_sum_us - it->second.wait_sum_us;
             sample.delta_involuntary_switches =
                 involuntary_switches - it->second.involuntary_switches;
+            sample.max_wait_us = sample.delta_wait_sum_us;
+            sample.avg_wait_us = sample.delta_involuntary_switches == 0
+                ? sample.delta_wait_sum_us
+                : sample.delta_wait_sum_us / sample.delta_involuntary_switches;
+            sample.aggregate_count = sample.delta_involuntary_switches;
             sample.valid = true;
             samples.push_back(sample);
         }
     }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - collect_start);
+    if (elapsed.count() > config_.sched_collector_overrun_warning_ms) {
+        ++last_failure_count_;
+    }
     return samples;
+}
+
+bool SchedDelayCollector::should_consider_process_id(int32_t pid) const
+{
+    if (!config_.sched_process_whitelist.empty()) {
+        return true;
+    }
+#if defined(__linux__)
+    return pid == static_cast<int32_t>(::getpid());
+#else
+    return false;
+#endif
 }
 
 bool SchedDelayCollector::should_scan_process(int32_t pid, const std::string& comm) const
@@ -161,6 +214,29 @@ bool SchedDelayCollector::should_scan_thread(const std::string& comm) const
 {
     return config_.sched_thread_whitelist.empty() ||
            contains_name(config_.sched_thread_whitelist, comm);
+}
+
+bool SchedDelayCollector::cached_comm(
+    uint64_t key,
+    const std::string& path,
+    std::unordered_map<uint64_t, CommCacheEntry>& cache,
+    std::string* comm)
+{
+    const auto now = std::chrono::steady_clock::now();
+    const auto refresh = std::chrono::milliseconds(config_.sched_proc_cache_refresh_ms);
+    const auto it = cache.find(key);
+    if (it != cache.end() && now - it->second.refreshed_at < refresh) {
+        *comm = it->second.comm;
+        return true;
+    }
+    std::string refreshed;
+    if (!read_comm(path, &refreshed)) {
+        cache.erase(key);
+        return false;
+    }
+    cache[key] = CommCacheEntry{refreshed, now};
+    *comm = std::move(refreshed);
+    return true;
 }
 
 bool SchedDelayCollector::read_comm(const std::string& path, std::string* comm) const

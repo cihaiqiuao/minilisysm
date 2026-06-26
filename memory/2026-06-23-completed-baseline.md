@@ -1,11 +1,11 @@
-# 2026-06-23 Completed Baseline
+# 2026-06-23 已验证基线
 
-Workspace: `E:\minilisysm`
+工作目录：`E:\minilisysm`
 
 ## 已完成实现
 
 - 创建 C++17 CMake 工程，用于 Lisysm Linux 稳定性监控链路初版实现。
-- 建立目录结构：`include/lisysm/`、`src/`、`config/`、`tests/`、`tools/`、`docs/`。
+- 建立目录结构：`include/minilisysm/`、`src/`、`config/`、`tests/`、`tools/`、`docs/`。
 - 实现 INI 风格配置加载与校验。
 - 实现固定大小内部事件模型，包含事件等级、状态、类型、证据和三类时间戳。
 - 实现有界 SPSC ring buffer，包含丢弃计数和 high-watermark 统计。

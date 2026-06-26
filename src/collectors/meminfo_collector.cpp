@@ -1,4 +1,4 @@
-#include "lisysm/collectors/meminfo_collector.hpp"
+﻿#include "minilisysm/collectors/meminfo_collector.hpp"
 
 #include <charconv>
 #include <cstring>

@@ -1,85 +1,85 @@
 # minilisysm
 
-`minilisysm` 是 Lisysm Linux 稳定性监控链路的初版工程实现。当前版本聚焦方案中的第一阶段和部分实时性优化：配置驱动、轻量 `/proc` 采集、规则状态机、固定大小内部事件、SPSC 有界无锁队列、后台 JSONL 滚动持久化，以及基础性能 benchmark。
+`minilisysm` 是 Lisysm Linux 稳定性监控链路的工程化初版。当前结构按守护进程入口、核心库、独立 eBPF 模块、测试、工具和部署脚本拆分，默认面向 Ubuntu/WSL 构建验证。
 
 当前已实现的规则链路：
 
 - 系统内存压力：基于 `/proc/meminfo` 的 `MemAvailable` 判断 Warning、Critical 和 Recovery。
 - 监控自身 RSS 保护：基于 `/proc/self/status` 的 `VmRSS` 判断监控模块自身内存压力。
 - 队列压力保护：基于 SPSC 队列 depth、drop count 和容量百分比判断 `monitor_queue_pressure`。
-- 调度延迟趋势：基于 `/proc/<pid>/task/<tid>/sched` 的 `wait_sum` 和被动上下文切换增量判断 `sched_delay_risk`。
-
-## 架构
-
-```text
-config/*.ini
-    -> Monitor
-       -> Fast collector thread
-          -> MeminfoCollector / SelfStatusCollector / queue snapshot
-          -> fast RuleEngine
-          -> fast SpscRingBuffer<InternalEvent>
-       -> Sched collector thread
-          -> SchedDelayCollector
-          -> sched RuleEngine
-          -> sched SpscRingBuffer<InternalEvent>
-       -> EventStore background thread polls all SPSC queues
-```
+- 调度延迟趋势：默认基于 `/proc/<pid>/task/<tid>/sched` 判断 `sched_delay_risk`；启用 eBPF 构建并配置 `source=ebpf` 后，可通过 `sched_switch` tracepoint 和 libbpf ring buffer 采集调度等待时间。
+- I/O 堵塞检测：基于 `/proc/diskstats` 对块设备 I/O 完成数、读写耗时和忙碌时间做差分，判断 `io_delay_risk`。
 
 ## 目录结构
 
-- `include/lisysm/core/`：基础类型、配置和时间接口。
-- `include/lisysm/collectors/`：Linux 指标采集器接口。
-- `include/lisysm/rules/`：规则状态机和规则 ID。
-- `include/lisysm/queue/`：有界事件队列。
-- `include/lisysm/storage/`：事件序列化和持久化。
-- `include/lisysm/runtime/`：监控主循环和线程策略。
-- `src/<module>/`：与 `include/lisysm/<module>/` 对应的实现文件。
-
-默认线程模型：
-
-- `main`：进程入口和退出信号处理。
-- `fast_collector`：轻量采集、自身保护和队列压力规则。
-- `sched_collector`：调度延迟扫描和调度规则。
-- `persist_thread`：后台序列化、滚动文件和本地缓存管理。
-
-每个 worker 使用独立 SPSC 队列，避免多个生产者共享同一个 SPSC。
-
-快速路径原则：
-
-- 不做网络请求。
-- 不做 JSON 序列化。
-- 事件对象定长，队列容量固定。
-- 队列满时按事件等级降级丢弃，不阻塞采集线程。
-- `/proc` 系统级文件优先 FD 复用，失败后降级重新打开。
-
-后台路径负责：
-
-- 结构化事件序列化。
-- 文件滚动和缓存容量保护。
-- Critical 事件受控同步刷盘。
-- 后续可扩展异步上传、压缩和断网补传。
-
-## 构建
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-ctest --test-dir build --output-on-failure
+```text
+apps/minilisysm-agent/      守护进程入口
+include/minilisysm/         核心库公共头文件
+src/                        核心库实现
+ebpf/                       可选 eBPF 用户态 loader 和 BPF 程序
+configs/                    默认运行配置
+tests/unit/                 单元测试
+tools/bench/                benchmark 工具
+scripts/                    依赖安装、构建和验证脚本
+cmake/                      CMake 选项和编译器设置
+docs/                       架构、部署和 eBPF 说明
+memory/                     项目交接记录
 ```
 
-Windows 环境可完成编译和单元测试；Linux 目标机运行时会启用 `/proc` 采集、线程 nice 和 CPU affinity。
+## 一键验证
+
+Ubuntu/WSL 环境安装基础依赖：
+
+```bash
+./scripts/install_deps.sh
+```
+
+构建并验证 Release：
+
+```bash
+./scripts/verify.sh
+```
+
+ASan/UBSan 验证：
+
+```bash
+./scripts/build.sh --asan
+./scripts/verify.sh --asan
+```
+
+可选 eBPF 构建验证：
+
+```bash
+./scripts/install_deps.sh --with-ebpf
+./scripts/build.sh --ebpf
+./scripts/verify.sh --ebpf
+```
+
+eBPF 运行需要 root/sudo 权限：
+
+```bash
+sudo /tmp/minilisysm-build-ebpf/minilisysm configs/lisysm_monitor.ini
+```
 
 ## 运行
 
 ```bash
-./build/minilisysm config/lisysm_monitor.ini
+./build/minilisysm configs/lisysm_monitor.ini
 ```
 
 默认缓存目录为 `./lisysm_events`，事件文件按大小滚动为 `events_000001.jsonl`。
 
-## 后续扩展点
+## 架构要点
 
-- 新增采集器：放入合适的 worker，只返回数值快照，不直接落盘或上传。
-- 新增规则：在 `RuleEngine` 中注册规则上下文，保留状态机、防抖和恢复事件。
-- 上传闭环：在后台消费文件批次，按 `event_id = device_id + boot_id + sequence` 保证云端幂等。
-- eBPF 增强：新增独立 collector，将内核侧聚合结果作为 Evidence 写入事件。
+- 快速路径不做网络请求、不做 JSON 序列化、不等待后台消费者。
+- 事件对象定长，SPSC 队列容量固定，队列满时记录丢弃统计并返回。
+- `fast_collector` 和 `sched_collector` 各自拥有独立 SPSC 队列。
+- 调度延迟和 I/O 堵塞共用低优先级 `sched_collector` 线程，避免额外增加采集线程数量。
+- `EventDispatcherGroup` 为每条采集队列创建独立 dispatcher，并为每个 sink 分配专属 SPSC 输入队列；当前 `JsonlEventSink` 负责 JSONL buffer 复用和滚动落盘。
+- eBPF 作为可选增强数据源，加载失败时回退 `/proc` collector，规则判断仍复用 `RuleEngine::evaluate_sched_delay()`。
+
+更多说明见：
+
+- `docs/ARCHITECTURE.md`
+- `docs/DEPLOYMENT.md`
+- `docs/EBPF.md`

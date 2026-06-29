@@ -7,16 +7,23 @@
 namespace lisysm {
 namespace {
 
-std::string escape_label(const std::string& value)
-{
+std::string escape_label(const std::string& value) {
     std::string escaped;
     escaped.reserve(value.size());
     for (const char c : value) {
         switch (c) {
-        case '\\': escaped += "\\\\"; break;
-        case '"': escaped += "\\\""; break;
-        case '\n': escaped += "\\n"; break;
-        default: escaped.push_back(c); break;
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '"':
+            escaped += "\\\"";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        default:
+            escaped.push_back(c);
+            break;
         }
     }
     return escaped;
@@ -24,23 +31,19 @@ std::string escape_label(const std::string& value)
 
 } // namespace
 
-void MetricRegistry::set_gauge(const std::string& name, double value, std::vector<MetricLabel> labels)
-{
+void MetricRegistry::set_gauge(const std::string& name, double value, std::vector<MetricLabel> labels) {
     set_locked(name, MetricKind::Gauge, value, std::move(labels), false);
 }
 
-void MetricRegistry::inc_counter(const std::string& name, double delta, std::vector<MetricLabel> labels)
-{
+void MetricRegistry::inc_counter(const std::string& name, double delta, std::vector<MetricLabel> labels) {
     set_locked(name, MetricKind::Counter, delta, std::move(labels), true);
 }
 
-void MetricRegistry::set_counter(const std::string& name, double value, std::vector<MetricLabel> labels)
-{
+void MetricRegistry::set_counter(const std::string& name, double value, std::vector<MetricLabel> labels) {
     set_locked(name, MetricKind::Counter, value, std::move(labels), false);
 }
 
-std::string MetricRegistry::render_prometheus() const
-{
+std::string MetricRegistry::render_prometheus() const {
     std::vector<std::pair<std::string, MetricValue>> snapshot;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -49,9 +52,7 @@ std::string MetricRegistry::render_prometheus() const
             snapshot.push_back(item);
         }
     }
-    std::sort(snapshot.begin(), snapshot.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.first < rhs.first;
-    });
+    std::sort(snapshot.begin(), snapshot.end(), [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
 
     std::ostringstream output;
     output << std::setprecision(12);
@@ -81,8 +82,7 @@ std::string MetricRegistry::render_prometheus() const
     return output.str();
 }
 
-std::string MetricRegistry::key_for(const std::string& name, const std::vector<MetricLabel>& labels)
-{
+std::string MetricRegistry::key_for(const std::string& name, const std::vector<MetricLabel>& labels) {
     std::string key = name;
     for (const MetricLabel& label : labels) {
         key.push_back('|');
@@ -93,13 +93,8 @@ std::string MetricRegistry::key_for(const std::string& name, const std::vector<M
     return key;
 }
 
-void MetricRegistry::set_locked(
-    const std::string& name,
-    MetricKind kind,
-    double value,
-    std::vector<MetricLabel> labels,
-    bool add)
-{
+void MetricRegistry::set_locked(const std::string& name, MetricKind kind, double value, std::vector<MetricLabel> labels,
+                                bool add) {
     std::lock_guard<std::mutex> lock(mutex_);
     MetricValue& metric = values_[key_for(name, labels)];
     metric.kind = kind;

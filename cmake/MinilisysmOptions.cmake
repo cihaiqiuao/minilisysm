@@ -1,5 +1,6 @@
 option(MINILISYSM_BUILD_TESTS "Build unit tests" ON)
 option(MINILISYSM_BUILD_TOOLS "Build benchmark tools" ON)
 option(MINILISYSM_ENABLE_EBPF "Enable optional eBPF collector skeleton" OFF)
+option(MINILISYSM_ENABLE_COVERAGE "Enable GCC/Clang coverage instrumentation" OFF)
 set(MINILISYSM_EBPF_RINGBUF_KB "1024" CACHE STRING "eBPF ring buffer size in KiB")
 set(MINILISYSM_EBPF_AGGREGATE_MAX_ENTRIES "8192" CACHE STRING "eBPF aggregate map max entries")

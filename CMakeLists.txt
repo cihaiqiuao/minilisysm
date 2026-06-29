@@ -3,10 +3,18 @@ project(minilisysm VERSION 0.1.0 LANGUAGES CXX)
 
 include(cmake/MinilisysmOptions.cmake)
 include(cmake/MinilisysmCompilerWarnings.cmake)
+include(cmake/MinilisysmDependencies.cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+include(GNUInstallDirs)
+
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
 
 add_library(minilisysm_core
     src/core/config.cpp
@@ -33,6 +41,7 @@ add_library(minilisysm_core
 target_include_directories(minilisysm_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_link_libraries(minilisysm_core PUBLIC spdlog::spdlog)
 
 if(MINILISYSM_ENABLE_EBPF)
     find_program(CLANG_EXECUTABLE clang REQUIRED)
@@ -122,54 +131,68 @@ endif()
 
 minilisysm_apply_compiler_warnings(minilisysm_core)
 
+if(MINILISYSM_ENABLE_COVERAGE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(minilisysm_core PUBLIC -O0 -g --coverage)
+        target_link_options(minilisysm_core PUBLIC --coverage)
+    else()
+        message(FATAL_ERROR "MINILISYSM_ENABLE_COVERAGE requires GCC or Clang")
+    endif()
+endif()
+
 add_executable(minilisysm apps/minilisysm-agent/main.cpp)
 target_link_libraries(minilisysm PRIVATE minilisysm_core)
+target_compile_definitions(minilisysm PRIVATE
+    MINILISYSM_DEFAULT_CONFIG_PATH="${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_SYSCONFDIR}/minilisysm/lisysm_monitor.ini"
+)
+
+install(TARGETS minilisysm
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+install(FILES configs/lisysm_monitor.ini
+    DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/minilisysm
+)
+
+install(FILES
+    README.md
+    docs/ARCHITECTURE.md
+    docs/DEPENDENCIES.md
+    docs/DEPLOYMENT.md
+    docs/EBPF.md
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/minilisysm
+)
 
 if(MINILISYSM_BUILD_TESTS)
     enable_testing()
 
-    add_executable(test_spsc tests/unit/test_spsc.cpp)
-    target_link_libraries(test_spsc PRIVATE minilisysm_core)
-    add_test(NAME spsc_queue COMMAND test_spsc)
+    function(minilisysm_add_unit_test target test_name source)
+        add_executable(${target} ${source})
+        target_link_libraries(${target} PRIVATE minilisysm_core)
+        set_target_properties(${target} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+        )
+        add_test(NAME ${test_name} COMMAND ${target})
+    endfunction()
 
-    add_executable(test_rule_engine tests/unit/test_rule_engine.cpp)
-    target_link_libraries(test_rule_engine PRIVATE minilisysm_core)
-    add_test(NAME rule_engine COMMAND test_rule_engine)
-
-    add_executable(test_factories tests/unit/test_factories.cpp)
-    target_link_libraries(test_factories PRIVATE minilisysm_core)
-    add_test(NAME factories COMMAND test_factories)
-
-    add_executable(test_event_serializer tests/unit/test_event_serializer.cpp)
-    target_link_libraries(test_event_serializer PRIVATE minilisysm_core)
-    add_test(NAME event_serializer COMMAND test_event_serializer)
-
-    add_executable(test_event_dispatcher tests/unit/test_event_dispatcher.cpp)
-    target_link_libraries(test_event_dispatcher PRIVATE minilisysm_core)
-    add_test(NAME event_dispatcher COMMAND test_event_dispatcher)
-
-    add_executable(test_jsonl_event_sink tests/unit/test_jsonl_event_sink.cpp)
-    target_link_libraries(test_jsonl_event_sink PRIVATE minilisysm_core)
-    add_test(NAME jsonl_event_sink COMMAND test_jsonl_event_sink)
-
-    add_executable(test_metrics_server tests/unit/test_metrics_server.cpp)
-    target_link_libraries(test_metrics_server PRIVATE minilisysm_core)
-    add_test(NAME metrics_server COMMAND test_metrics_server)
-
-    add_executable(test_metric_registry tests/unit/test_metric_registry.cpp)
-    target_link_libraries(test_metric_registry PRIVATE minilisysm_core)
-    add_test(NAME metric_registry COMMAND test_metric_registry)
-
-    add_executable(test_network_event_sink tests/unit/test_network_event_sink.cpp)
-    target_link_libraries(test_network_event_sink PRIVATE minilisysm_core)
-    add_test(NAME network_event_sink COMMAND test_network_event_sink)
-
-    add_executable(test_interfaces tests/unit/test_interfaces.cpp)
-    target_link_libraries(test_interfaces PRIVATE minilisysm_core)
-    add_test(NAME interfaces COMMAND test_interfaces)
+    minilisysm_add_unit_test(test_spsc spsc_queue tests/unit/test_spsc.cpp)
+    minilisysm_add_unit_test(test_rule_engine rule_engine tests/unit/test_rule_engine.cpp)
+    minilisysm_add_unit_test(test_factories factories tests/unit/test_factories.cpp)
+    minilisysm_add_unit_test(test_event_serializer event_serializer tests/unit/test_event_serializer.cpp)
+    minilisysm_add_unit_test(test_event_dispatcher event_dispatcher tests/unit/test_event_dispatcher.cpp)
+    minilisysm_add_unit_test(test_jsonl_event_sink jsonl_event_sink tests/unit/test_jsonl_event_sink.cpp)
+    minilisysm_add_unit_test(test_metrics_server metrics_server tests/unit/test_metrics_server.cpp)
+    minilisysm_add_unit_test(test_metric_registry metric_registry tests/unit/test_metric_registry.cpp)
+    minilisysm_add_unit_test(test_network_event_sink network_event_sink tests/unit/test_network_event_sink.cpp)
+    minilisysm_add_unit_test(test_interfaces interfaces tests/unit/test_interfaces.cpp)
+    minilisysm_add_unit_test(test_meminfo_collector meminfo_collector tests/unit/test_meminfo_collector.cpp)
+    minilisysm_add_unit_test(test_self_status_collector self_status_collector tests/unit/test_self_status_collector.cpp)
+    minilisysm_add_unit_test(test_io_delay_collector io_delay_collector tests/unit/test_io_delay_collector.cpp)
+    minilisysm_add_unit_test(test_sched_delay_collector sched_delay_collector tests/unit/test_sched_delay_collector.cpp)
 endif()
 
 if(MINILISYSM_BUILD_TOOLS)
     add_executable(bench_spsc tools/bench/bench_spsc.cpp)
     target_link_libraries(bench_spsc PRIVATE minilisysm_core)
+    set_target_properties(bench_spsc PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tools)
 endif()

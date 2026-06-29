@@ -5,16 +5,15 @@
 #include <memory>
 #include <thread>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
-int main()
-{
+int main() {
     lisysm::SpscRingBuffer<lisysm::InternalEvent> queue(8);
     lisysm::InternalEvent event;
     event.sequence = 42;

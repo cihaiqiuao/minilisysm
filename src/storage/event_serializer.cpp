@@ -7,27 +7,41 @@
 namespace lisysm {
 namespace {
 
-void append_json_string(std::string& output, std::string_view value)
-{
+void append_json_string(std::string& output, std::string_view value) {
     output.push_back('"');
     for (const char c : value) {
         switch (c) {
-        case '"': output += "\\\""; break;
-        case '\\': output += "\\\\"; break;
-        case '\b': output += "\\b"; break;
-        case '\f': output += "\\f"; break;
-        case '\n': output += "\\n"; break;
-        case '\r': output += "\\r"; break;
-        case '\t': output += "\\t"; break;
-        default: output.push_back(c); break;
+        case '"':
+            output += "\\\"";
+            break;
+        case '\\':
+            output += "\\\\";
+            break;
+        case '\b':
+            output += "\\b";
+            break;
+        case '\f':
+            output += "\\f";
+            break;
+        case '\n':
+            output += "\\n";
+            break;
+        case '\r':
+            output += "\\r";
+            break;
+        case '\t':
+            output += "\\t";
+            break;
+        default:
+            output.push_back(c);
+            break;
         }
     }
     output.push_back('"');
 }
 
 template <typename T>
-void append_integer(std::string& output, T value)
-{
+void append_integer(std::string& output, T value) {
     char buffer[32];
     auto [ptr, ec] = std::to_chars(buffer, buffer + sizeof(buffer), value);
     if (ec == std::errc{}) {
@@ -35,8 +49,7 @@ void append_integer(std::string& output, T value)
     }
 }
 
-void append_double(std::string& output, double value)
-{
+void append_double(std::string& output, double value) {
     char buffer[64];
     const int written = std::snprintf(buffer, sizeof(buffer), "%.3f", value);
     if (written > 0) {
@@ -44,8 +57,7 @@ void append_double(std::string& output, double value)
     }
 }
 
-void append_field_name(std::string& output, const char* name)
-{
+void append_field_name(std::string& output, const char* name) {
     output += ",\"";
     output += name;
     output += "\":";
@@ -53,68 +65,95 @@ void append_field_name(std::string& output, const char* name)
 
 } // namespace
 
-const char* to_string(EventLevel level)
-{
+const char* to_string(EventLevel level) {
     switch (level) {
-    case EventLevel::Critical: return "critical";
-    case EventLevel::Warning: return "warning";
-    case EventLevel::Recovery: return "recovery";
-    case EventLevel::Info: return "info";
+    case EventLevel::Critical:
+        return "error";
+    case EventLevel::Warning:
+        return "warning";
+    case EventLevel::Recovery:
+        return "recovery";
+    case EventLevel::Info:
+        return "info";
     }
     return "unknown";
 }
 
-const char* to_string(EventStatus status)
-{
+const char* to_string(EventStatus status) {
     switch (status) {
-    case EventStatus::Active: return "active";
-    case EventStatus::Recovering: return "recovering";
-    case EventStatus::Resolved: return "resolved";
+    case EventStatus::Active:
+        return "active";
+    case EventStatus::Recovering:
+        return "recovering";
+    case EventStatus::Resolved:
+        return "resolved";
     }
     return "unknown";
 }
 
-const char* to_string(EventType type)
-{
+const char* to_string(EventType type) {
     switch (type) {
-    case EventType::MonitorStarted: return "monitor_started";
-    case EventType::MemoryPressure: return "memory_pressure";
-    case EventType::MonitorOverrun: return "monitor_overrun";
-    case EventType::QueuePressure: return "monitor_queue_pressure";
-    case EventType::StoragePressure: return "monitor_storage_pressure";
-    case EventType::CollectorFailure: return "monitor_collector_failure";
-    case EventType::MonitorMemoryPressure: return "monitor_memory_pressure";
-    case EventType::SchedDelayRisk: return "sched_delay_risk";
-    case EventType::IoDelayRisk: return "io_delay_risk";
+    case EventType::MonitorStarted:
+        return "monitor_started";
+    case EventType::MemoryPressure:
+        return "memory_pressure";
+    case EventType::MonitorOverrun:
+        return "monitor_overrun";
+    case EventType::QueuePressure:
+        return "monitor_queue_pressure";
+    case EventType::StoragePressure:
+        return "monitor_storage_pressure";
+    case EventType::CollectorFailure:
+        return "monitor_collector_failure";
+    case EventType::MonitorMemoryPressure:
+        return "monitor_memory_pressure";
+    case EventType::SchedDelayRisk:
+        return "sched_delay_risk";
+    case EventType::IoDelayRisk:
+        return "io_delay_risk";
     }
     return "unknown";
 }
 
 EventSerializer::EventSerializer(const MonitorConfig& config) : config_(config) {}
 
-std::string EventSerializer::to_json_line(const InternalEvent& event) const
-{
+std::string EventSerializer::to_json_line(const InternalEvent& event) const {
     std::string output;
     to_json_line(event, output);
     return output;
 }
 
-void EventSerializer::to_json_line(const InternalEvent& event, std::string& output) const
-{
+void EventSerializer::to_json_line(const InternalEvent& event, std::string& output) const {
     output.clear();
     output.reserve(1024);
     output += "{\"event_id\":";
     output.push_back('"');
     for (const char c : config_.device_id) {
         switch (c) {
-        case '"': output += "\\\""; break;
-        case '\\': output += "\\\\"; break;
-        case '\b': output += "\\b"; break;
-        case '\f': output += "\\f"; break;
-        case '\n': output += "\\n"; break;
-        case '\r': output += "\\r"; break;
-        case '\t': output += "\\t"; break;
-        default: output.push_back(c); break;
+        case '"':
+            output += "\\\"";
+            break;
+        case '\\':
+            output += "\\\\";
+            break;
+        case '\b':
+            output += "\\b";
+            break;
+        case '\f':
+            output += "\\f";
+            break;
+        case '\n':
+            output += "\\n";
+            break;
+        case '\r':
+            output += "\\r";
+            break;
+        case '\t':
+            output += "\\t";
+            break;
+        default:
+            output.push_back(c);
+            break;
         }
     }
     output.push_back('-');

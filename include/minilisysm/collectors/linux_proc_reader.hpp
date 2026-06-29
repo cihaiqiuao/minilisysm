@@ -8,7 +8,7 @@
 namespace lisysm {
 
 class LinuxProcReader {
-public:
+  public:
     explicit LinuxProcReader(std::string path);
     ~LinuxProcReader();
 
@@ -16,9 +16,11 @@ public:
     LinuxProcReader& operator=(const LinuxProcReader&) = delete;
 
     bool read(std::string_view* view);
-    const std::string& path() const { return path_; }
+    const std::string& path() const {
+        return path_;
+    }
 
-private:
+  private:
     bool open_fd();
     void close_fd();
 

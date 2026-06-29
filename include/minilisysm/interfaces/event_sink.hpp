@@ -29,7 +29,7 @@ struct SinkStats {
 };
 
 class EventSink {
-public:
+  public:
     virtual ~EventSink() = default;
     virtual const char* name() const = 0;
     virtual SpscRingBuffer<InternalEvent>* add_input_queue(size_t capacity) = 0;

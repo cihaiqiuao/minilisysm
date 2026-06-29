@@ -13,18 +13,17 @@
 #include <unistd.h>
 #endif
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
 namespace {
 
-std::string http_get(uint16_t port, const char* path)
-{
+std::string http_get(uint16_t port, const char* path) {
 #if defined(__linux__)
     const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
@@ -53,8 +52,7 @@ std::string http_get(uint16_t port, const char* path)
 
 } // namespace
 
-int main()
-{
+int main() {
 #if !defined(__linux__)
     return EXIT_SUCCESS;
 #else
@@ -63,9 +61,7 @@ int main()
     config.metrics_bind_host = "127.0.0.1";
     config.metrics_port = 19108;
 
-    lisysm::MetricsServer server(config, [] {
-        return std::string("# TYPE minilisysm_up gauge\nminilisysm_up 1\n");
-    });
+    lisysm::MetricsServer server(config, [] { return std::string("# TYPE minilisysm_up gauge\nminilisysm_up 1\n"); });
     CHECK(server.start());
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 

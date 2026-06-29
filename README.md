@@ -40,12 +40,24 @@ Ubuntu/WSL 环境安装基础依赖：
 ./scripts/verify.sh
 ```
 
+项目的 C++ 第三方依赖由 vcpkg manifest 管理，当前包含 Agent 日志库 `spdlog`。`scripts/build.sh` 和 `scripts/verify.sh` 默认会自动引导 vcpkg；如果目标环境已经通过系统包提供 C++ 依赖，可以显式使用 `--no-vcpkg`。
+
 ASan/UBSan 验证：
 
 ```bash
 ./scripts/build.sh --asan
 ./scripts/verify.sh --asan
 ```
+
+格式化、静态检查和覆盖率报告：
+
+```bash
+./scripts/format_check.sh
+./scripts/lint.sh
+./scripts/coverage.sh
+```
+
+`scripts/lint.sh` 依赖 `build/release/compile_commands.json`，如果不存在会自动配置 Release 构建目录。覆盖率报告输出到 `build/coverage-report/index.html`。
 
 可选 eBPF 构建验证：
 
@@ -58,16 +70,82 @@ ASan/UBSan 验证：
 eBPF 运行需要 root/sudo 权限：
 
 ```bash
-sudo /tmp/minilisysm-build-ebpf/minilisysm configs/lisysm_monitor.ini
+sudo ./install/bin/minilisysm
 ```
 
 ## 运行
 
 ```bash
-./build/minilisysm configs/lisysm_monitor.ini
+./scripts/run.sh
 ```
 
-默认缓存目录为 `./lisysm_events`，事件文件按大小滚动为 `events_000001.jsonl`。
+默认所有运行产物统一放在 `./logs/` 下。Agent 运行日志写入 `agent/`，事件缓存写入 `events/`，网络 WAL 写入 `wal/`。机器可读事件写入 `events/jsonl/` 子目录，人工排查摘要写入 `events/summary/` 子目录。文件名包含启动时间、进程号和滚动段号，例如：
+
+```text
+logs/events/jsonl/minilisysm-events-20260629-111101-p6750-part000001.jsonl
+logs/events/summary/minilisysm-events-20260629-111101-p6750-part000001.summary.log
+```
+
+摘要日志默认不写 ANSI 控制字符，方便在编辑器里直接查看；需要在终端里看颜色时，可以把配置里的 `summary_color` 改成 `true` 后用 `tail -f logs/events/summary/*.summary.log` 查看。
+
+Agent 自身运行日志使用 `spdlog` 异步写入，默认同时输出到控制台和 `./logs/agent/minilisysm-agent.log`，支持 `debug`、`info`、`warn`、`error` 分级。默认按大小滚动，避免长期运行打满磁盘：
+
+```ini
+[agent_log]
+enable=true
+level=info
+console=true
+path=./logs/agent/minilisysm-agent.log
+rotation=size
+rotate_mb=16
+rotate_files=8
+async_queue_size=8192
+```
+
+需要按天滚动时，将 `rotation` 改为 `daily`。
+
+## 构建产物布局
+
+`build/` 只作为 CMake/Ninja 中间构建目录，默认 vcpkg Release 构建位于 `build/release-vcpkg/`。正式可运行和可分发产物统一安装到 `install/`，不再按 vcpkg/no-vcpkg 拆出多份根目录：
+
+```text
+install/bin/minilisysm                    主程序
+install/etc/minilisysm/lisysm_monitor.ini 默认配置
+install/share/doc/minilisysm/             文档
+```
+
+默认情况下，`install/bin/minilisysm` 会读取 `install/etc/minilisysm/lisysm_monitor.ini`。需要临时使用其他配置时，可以把配置路径作为第一个参数传入。
+
+`scripts/run.sh` 默认通过 `taskset` 把进程绑定到 CPU2。也可以通过运行脚本指定配置和其他 CPU：
+
+```bash
+./scripts/run.sh --config ./install/etc/minilisysm/lisysm_monitor.ini
+./scripts/run.sh --cpu 1
+./scripts/run.sh --cpu 0-3 --config ./my.ini
+```
+
+`--vcpkg` 和 `--no-vcpkg` 只表示依赖来源，不改变正式安装目录。`--ebpf` 会生成 eBPF 能力的正式产物并覆盖 `install/`。`--asan` 是测试产物，安装在 `build/asan-vcpkg/install/` 或 `build/asan/install/`，避免污染正式运行目录。
+
+## 开机自启动
+
+使用 systemd 安装后台服务：
+
+```bash
+./scripts/install_service.sh
+```
+
+查看状态和日志：
+
+```bash
+systemctl status minilisysm.service
+journalctl -u minilisysm.service -f
+```
+
+停用并移除服务：
+
+```bash
+./scripts/uninstall_service.sh
+```
 
 ## 架构要点
 

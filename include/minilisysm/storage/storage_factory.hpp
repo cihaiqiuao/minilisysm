@@ -9,7 +9,7 @@
 namespace lisysm {
 
 class StorageFactory {
-public:
+  public:
     static std::vector<std::unique_ptr<EventSink>> create_event_sinks(const MonitorConfig& config);
 };
 

@@ -16,8 +16,7 @@ namespace {
 using Section = std::unordered_map<std::string, std::string>;
 using Ini = std::unordered_map<std::string, Section>;
 
-std::string trim(std::string_view input)
-{
+std::string trim(std::string_view input) {
     size_t begin = 0;
     size_t end = input.size();
     while (begin < end && std::isspace(static_cast<unsigned char>(input[begin]))) {
@@ -29,8 +28,7 @@ std::string trim(std::string_view input)
     return std::string(input.substr(begin, end - begin));
 }
 
-Ini parse_ini(const std::string& path)
-{
+Ini parse_ini(const std::string& path) {
     std::ifstream stream(path);
     Ini ini;
     std::string section;
@@ -58,8 +56,7 @@ Ini parse_ini(const std::string& path)
     return ini;
 }
 
-const std::string* find_value(const Ini& ini, const char* section, const char* key)
-{
+const std::string* find_value(const Ini& ini, const char* section, const char* key) {
     const auto sit = ini.find(section);
     if (sit == ini.end()) {
         return nullptr;
@@ -71,18 +68,15 @@ const std::string* find_value(const Ini& ini, const char* section, const char* k
     return &kit->second;
 }
 
-bool parse_bool(std::string_view value)
-{
+bool parse_bool(std::string_view value) {
     std::string lower(value);
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return lower == "true" || lower == "1" || lower == "yes" || lower == "on";
 }
 
 template <typename T>
-void assign_int(const Ini& ini, const char* section, const char* key, T& target)
-{
+void assign_int(const Ini& ini, const char* section, const char* key, T& target) {
     const std::string* value = find_value(ini, section, key);
     if (!value) {
         return;
@@ -95,24 +89,21 @@ void assign_int(const Ini& ini, const char* section, const char* key, T& target)
     }
 }
 
-void assign_bool(const Ini& ini, const char* section, const char* key, bool& target)
-{
+void assign_bool(const Ini& ini, const char* section, const char* key, bool& target) {
     const std::string* value = find_value(ini, section, key);
     if (value) {
         target = parse_bool(*value);
     }
 }
 
-void assign_string(const Ini& ini, const char* section, const char* key, std::string& target)
-{
+void assign_string(const Ini& ini, const char* section, const char* key, std::string& target) {
     const std::string* value = find_value(ini, section, key);
     if (value) {
         target = *value;
     }
 }
 
-void assign_double(const Ini& ini, const char* section, const char* key, double& target)
-{
+void assign_double(const Ini& ini, const char* section, const char* key, double& target) {
     const std::string* value = find_value(ini, section, key);
     if (!value) {
         return;
@@ -127,8 +118,7 @@ void assign_double(const Ini& ini, const char* section, const char* key, double&
     }
 }
 
-std::vector<std::string> split_csv(std::string_view value)
-{
+std::vector<std::string> split_csv(std::string_view value) {
     std::vector<std::string> result;
     while (!value.empty()) {
         const size_t comma = value.find(',');
@@ -144,8 +134,7 @@ std::vector<std::string> split_csv(std::string_view value)
     return result;
 }
 
-void assign_csv(const Ini& ini, const char* section, const char* key, std::vector<std::string>& target)
-{
+void assign_csv(const Ini& ini, const char* section, const char* key, std::vector<std::string>& target) {
     const std::string* value = find_value(ini, section, key);
     if (value) {
         target = split_csv(*value);
@@ -154,8 +143,7 @@ void assign_csv(const Ini& ini, const char* section, const char* key, std::vecto
 
 } // namespace
 
-MonitorConfig ConfigLoader::load_or_default(const std::string& path)
-{
+MonitorConfig ConfigLoader::load_or_default(const std::string& path) {
     MonitorConfig config;
     const Ini ini = parse_ini(path);
 
@@ -174,6 +162,15 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_bool(ini, "metrics", "scrape_runtime", config.metrics_scrape_runtime);
     assign_bool(ini, "metrics", "scrape_collectors", config.metrics_scrape_collectors);
     assign_bool(ini, "metrics", "scrape_rule_state", config.metrics_scrape_rule_state);
+
+    assign_bool(ini, "agent_log", "enable", config.agent_log_enable);
+    assign_string(ini, "agent_log", "level", config.agent_log_level);
+    assign_bool(ini, "agent_log", "console", config.agent_log_console);
+    assign_string(ini, "agent_log", "path", config.agent_log_path);
+    assign_string(ini, "agent_log", "rotation", config.agent_log_rotation);
+    assign_int(ini, "agent_log", "rotate_mb", config.agent_log_rotate_mb);
+    assign_int(ini, "agent_log", "rotate_files", config.agent_log_rotate_files);
+    assign_int(ini, "agent_log", "async_queue_size", config.agent_log_async_queue_size);
 
     assign_int(ini, "thread_policy", "fast_collector_cpu", config.fast_collector_cpu);
     assign_int(ini, "thread_policy", "sched_collector_cpu", config.sched_collector_cpu);
@@ -248,6 +245,8 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     assign_int(ini, "persistence", "file_rotate_mb", config.file_rotate_mb);
     assign_bool(ini, "persistence", "critical_fsync", config.critical_fsync);
     assign_int(ini, "persistence", "max_fsync_per_minute", config.max_fsync_per_minute);
+    assign_bool(ini, "persistence", "summary_enable", config.summary_enable);
+    assign_bool(ini, "persistence", "summary_color", config.summary_color);
 
     assign_bool(ini, "network_sink", "enable", config.network_sink_enable);
     assign_string(ini, "network_sink", "endpoint", config.network_endpoint);
@@ -266,8 +265,12 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path)
     return config;
 }
 
-bool ConfigLoader::validate(MonitorConfig& config, std::string* error)
-{
+bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
+    std::transform(config.agent_log_level.begin(), config.agent_log_level.end(), config.agent_log_level.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(config.agent_log_rotation.begin(), config.agent_log_rotation.end(),
+                   config.agent_log_rotation.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (config.fast_collect_interval_ms < 100) {
         config.fast_collect_interval_ms = 100;
     }
@@ -279,6 +282,22 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error)
     }
     if (config.metrics_port == 0) {
         config.metrics_enable = false;
+    }
+    if (config.agent_log_level != "debug" && config.agent_log_level != "info" && config.agent_log_level != "warn" &&
+        config.agent_log_level != "error") {
+        config.agent_log_level = "info";
+    }
+    if (config.agent_log_rotation != "size" && config.agent_log_rotation != "daily") {
+        config.agent_log_rotation = "size";
+    }
+    if (config.agent_log_rotate_mb == 0) {
+        config.agent_log_rotate_mb = 1;
+    }
+    if (config.agent_log_rotate_files == 0) {
+        config.agent_log_rotate_files = 1;
+    }
+    if (config.agent_log_async_queue_size < 1024) {
+        config.agent_log_async_queue_size = 1024;
     }
     if (config.event_queue_capacity < 16) {
         config.event_queue_capacity = 16;

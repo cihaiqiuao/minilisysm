@@ -17,23 +17,27 @@
 namespace lisysm {
 
 class JsonlEventSink : public EventSink {
-public:
+  public:
     explicit JsonlEventSink(const MonitorConfig& config);
     ~JsonlEventSink() override;
 
     JsonlEventSink(const JsonlEventSink&) = delete;
     JsonlEventSink& operator=(const JsonlEventSink&) = delete;
 
-    const char* name() const override { return "jsonl"; }
+    const char* name() const override {
+        return "jsonl";
+    }
     SpscRingBuffer<InternalEvent>* add_input_queue(size_t capacity) override;
     bool start() override;
     void stop() override;
     SinkStats stats() const override;
 
-private:
+  private:
     void run();
     void drain_queues(std::string& line);
     bool write_event(const InternalEvent& event, std::string& line);
+    void write_summary(const InternalEvent& event);
+    std::string make_summary_line(const InternalEvent& event) const;
     bool open_next_file();
     void rotate_if_needed();
     void fsync_if_allowed(EventLevel level);
@@ -45,7 +49,10 @@ private:
     std::atomic<bool> running_{false};
     std::thread worker_;
     std::ofstream stream_;
+    std::ofstream summary_stream_;
     std::string current_path_;
+    std::string current_summary_path_;
+    std::string file_prefix_;
     uint64_t current_size_{0};
     uint32_t file_index_{0};
     mutable std::atomic<uint64_t> written_events_{0};

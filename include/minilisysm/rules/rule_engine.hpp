@@ -76,7 +76,7 @@ struct RuleContext {
 };
 
 class RuleEngine {
-public:
+  public:
     explicit RuleEngine(const MonitorConfig& config);
     std::optional<InternalEvent> evaluate_memory(const MeminfoSample& sample);
     std::optional<InternalEvent> evaluate_self_rss(uint64_t rss_kb);
@@ -84,37 +84,19 @@ public:
     std::optional<InternalEvent> evaluate_sched_delay(const SchedDelaySample& sample);
     std::optional<InternalEvent> evaluate_io_delay(const IoDelaySample& sample);
 
-private:
+  private:
     InternalEvent make_memory_event(EventLevel level, EventStatus status, double value_mb) const;
     InternalEvent make_self_rss_event(EventLevel level, EventStatus status, double rss_mb) const;
-    InternalEvent make_queue_event(
-        EventLevel level,
-        EventStatus status,
-        double queue_percent,
-        const QueueSnapshot& snapshot) const;
-    InternalEvent make_sched_delay_event(
-        const SchedDelaySample& sample,
-        EventLevel level,
-        EventStatus status,
-        double wait_sum_us,
-        const RuleContext& context) const;
-    InternalEvent make_io_delay_event(
-        const IoDelaySample& sample,
-        EventLevel level,
-        EventStatus status,
-        double await_ms,
-        const RuleContext& context) const;
-    std::optional<EventLevel> evaluate_threshold(
-        RuleContext& context,
-        const ThresholdRuleDefinition& definition,
-        double value,
-        bool external_warning_trigger,
-        bool external_critical_trigger,
-        bool external_recovery_blocked);
-    bool recovered(
-        const ThresholdRuleDefinition& definition,
-        double value,
-        bool extra_recovery_condition) const;
+    InternalEvent make_queue_event(EventLevel level, EventStatus status, double queue_percent,
+                                   const QueueSnapshot& snapshot) const;
+    InternalEvent make_sched_delay_event(const SchedDelaySample& sample, EventLevel level, EventStatus status,
+                                         double wait_sum_us, const RuleContext& context) const;
+    InternalEvent make_io_delay_event(const IoDelaySample& sample, EventLevel level, EventStatus status,
+                                      double await_ms, const RuleContext& context) const;
+    std::optional<EventLevel> evaluate_threshold(RuleContext& context, const ThresholdRuleDefinition& definition,
+                                                 double value, bool external_warning_trigger,
+                                                 bool external_critical_trigger, bool external_recovery_blocked);
+    bool recovered(const ThresholdRuleDefinition& definition, double value, bool extra_recovery_condition) const;
 
     const MonitorConfig& config_;
     RuleContext memory_;

@@ -1,6 +1,8 @@
 #include "minilisysm/storage/network_event_sink.hpp"
 #include "minilisysm/runtime/thread_policy.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -23,33 +25,25 @@ namespace lisysm {
 namespace fs = std::filesystem;
 
 NetworkEventSink::NetworkEventSink(const MonitorConfig& config)
-    : config_(config),
-      serializer_(config),
-      endpoint_(parse_endpoint())
-{
-}
+    : config_(config), serializer_(config), endpoint_(parse_endpoint()) {}
 
-NetworkEventSink::~NetworkEventSink()
-{
+NetworkEventSink::~NetworkEventSink() {
     stop();
 }
 
-SpscRingBuffer<InternalEvent>* NetworkEventSink::add_input_queue(size_t capacity)
-{
+SpscRingBuffer<InternalEvent>* NetworkEventSink::add_input_queue(size_t capacity) {
     queues_.push_back(std::make_unique<SpscRingBuffer<InternalEvent>>(
-        capacity,
-        config_.critical_reserved_slots,
-        config_.drop_info_when_full,
-        config_.drop_warning_when_full));
+        capacity, config_.critical_reserved_slots, config_.drop_info_when_full, config_.drop_warning_when_full));
     return queues_.back().get();
 }
 
-bool NetworkEventSink::start()
-{
+bool NetworkEventSink::start() {
     if (!config_.network_sink_enable) {
+        spdlog::info("network event sink disabled");
         return true;
     }
     if (!endpoint_.valid) {
+        spdlog::error("network event sink endpoint is invalid: endpoint={}", config_.network_endpoint);
         return false;
     }
     fs::create_directories(config_.network_wal_path);
@@ -59,19 +53,24 @@ bool NetworkEventSink::start()
     }
     running_.store(true);
     worker_ = std::thread(&NetworkEventSink::run, this);
+    spdlog::info("network event sink started: endpoint={} wal_path={} pending_events={}", config_.network_endpoint,
+                 config_.network_wal_path, pending_.size());
     return true;
 }
 
-void NetworkEventSink::stop()
-{
-    running_.store(false);
+void NetworkEventSink::stop() {
+    const bool was_running = running_.exchange(false);
     if (worker_.joinable()) {
         worker_.join();
     }
+    if (was_running) {
+        spdlog::info("network event sink stopped: accepted={} sent={} send_errors={} retries={} wal_pending={}",
+                     accepted_events_.load(), sent_events_.load(), send_errors_.load(), retry_count_.load(),
+                     stats().wal_pending_events);
+    }
 }
 
-SinkStats NetworkEventSink::stats() const
-{
+SinkStats NetworkEventSink::stats() const {
     uint64_t dropped_events = 0;
     uint64_t dropped_critical_events = 0;
     uint64_t reserve_reject_events = 0;
@@ -112,11 +111,14 @@ SinkStats NetworkEventSink::stats() const
     return stats;
 }
 
-void NetworkEventSink::run()
-{
+void NetworkEventSink::run() {
     std::string ignored;
-    set_current_thread_affinity(config_.persist_thread_cpu, &ignored);
-    set_current_thread_nice(config_.background_nice, &ignored);
+    if (!set_current_thread_affinity(config_.persist_thread_cpu, &ignored) && config_.persist_thread_cpu >= 0) {
+        spdlog::warn("failed to set network sink CPU affinity: cpu={} reason={}", config_.persist_thread_cpu, ignored);
+    }
+    if (!set_current_thread_nice(config_.background_nice, &ignored)) {
+        spdlog::warn("failed to set network sink nice: nice={} reason={}", config_.background_nice, ignored);
+    }
 
     uint32_t retry_ms = config_.network_retry_base_ms;
     auto next_flush = std::chrono::steady_clock::now();
@@ -134,6 +136,8 @@ void NetworkEventSink::run()
                 next_flush = now + std::chrono::milliseconds(config_.network_flush_interval_ms);
             } else {
                 retry_count_.fetch_add(1);
+                spdlog::warn("network sink flush failed: retry_delay_ms={} endpoint={}", retry_ms,
+                             config_.network_endpoint);
                 next_flush = now + std::chrono::milliseconds(retry_ms);
                 retry_ms = std::min<uint32_t>(retry_ms * 2, config_.network_retry_max_ms);
             }
@@ -153,15 +157,19 @@ void NetworkEventSink::run()
     }
 }
 
-void NetworkEventSink::drain_queues_once()
-{
+void NetworkEventSink::drain_queues_once() {
     std::string line;
     line.reserve(1024);
     for (const auto& queue : queues_) {
         InternalEvent event;
         while (queue && queue->pop(event)) {
             if (wal_over_limit() && event.level != EventLevel::Critical) {
-                wal_overflow_dropped_events_.fetch_add(1);
+                const uint64_t dropped = wal_overflow_dropped_events_.fetch_add(1) + 1;
+                if (dropped == 1 || dropped % 1000 == 0) {
+                    spdlog::warn(
+                        "network WAL over limit, dropping non-critical event: dropped={} wal_bytes={} max_mb={}",
+                        dropped, wal_bytes(), config_.network_wal_max_mb);
+                }
                 continue;
             }
             serializer_.to_json_line(event, line);
@@ -176,24 +184,27 @@ void NetworkEventSink::drain_queues_once()
     enforce_wal_limit();
 }
 
-void NetworkEventSink::append_wal(const std::string& json_line)
-{
+void NetworkEventSink::append_wal(const std::string& json_line) {
     fs::create_directories(config_.network_wal_path);
     if (current_wal_path_.empty()) {
         current_wal_path_ = next_wal_path();
     }
     const uint64_t segment_bytes = config_.network_wal_segment_mb * 1024ULL * 1024ULL;
     if (current_wal_size_ >= segment_bytes) {
+        spdlog::info("rotating network WAL segment: path={} size_bytes={} max_bytes={}", current_wal_path_.string(),
+                     current_wal_size_, segment_bytes);
         current_wal_path_ = next_wal_path();
         current_wal_size_ = 0;
     }
     std::ofstream stream(current_wal_path_, std::ios::out | std::ios::app | std::ios::binary);
     stream << "0\t" << json_line;
+    if (!stream) {
+        spdlog::error("failed to append network WAL: path={}", current_wal_path_.string());
+    }
     current_wal_size_ += json_line.size() + 2;
 }
 
-void NetworkEventSink::load_wal()
-{
+void NetworkEventSink::load_wal() {
     std::lock_guard<std::mutex> lock(pending_mutex_);
     pending_.clear();
     fs::create_directories(config_.network_wal_path);
@@ -226,10 +237,11 @@ void NetworkEventSink::load_wal()
     current_wal_index_ = max_index + 1;
     current_wal_path_ = next_wal_path();
     current_wal_size_ = 0;
+    spdlog::info("network WAL loaded: path={} segments={} pending_events={}", config_.network_wal_path, segments.size(),
+                 pending_.size());
 }
 
-void NetworkEventSink::rewrite_wal_locked()
-{
+void NetworkEventSink::rewrite_wal_locked() {
     std::vector<fs::path> old_segments;
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator(config_.network_wal_path, ec)) {
@@ -239,6 +251,10 @@ void NetworkEventSink::rewrite_wal_locked()
     }
     for (const fs::path& path : old_segments) {
         fs::remove(path, ec);
+        if (ec) {
+            spdlog::warn("failed to remove old network WAL segment: path={} error={}", path.string(), ec.message());
+            ec.clear();
+        }
     }
     current_wal_index_ = 1;
     current_wal_path_ = next_wal_path();
@@ -251,13 +267,15 @@ void NetworkEventSink::rewrite_wal_locked()
         }
         std::ofstream stream(current_wal_path_, std::ios::out | std::ios::app | std::ios::binary);
         stream << "0\t" << record.json_line;
+        if (!stream) {
+            spdlog::error("failed to rewrite network WAL segment: path={}", current_wal_path_.string());
+        }
         record.path = current_wal_path_;
         current_wal_size_ += record.json_line.size() + 2;
     }
 }
 
-void NetworkEventSink::ack_pending(size_t acked_count)
-{
+void NetworkEventSink::ack_pending(size_t acked_count) {
     std::lock_guard<std::mutex> lock(pending_mutex_);
     if (acked_count > pending_.size()) {
         acked_count = pending_.size();
@@ -266,8 +284,7 @@ void NetworkEventSink::ack_pending(size_t acked_count)
     rewrite_wal_locked();
 }
 
-bool NetworkEventSink::flush_pending()
-{
+bool NetworkEventSink::flush_pending() {
     std::vector<std::string> batch;
     {
         std::lock_guard<std::mutex> lock(pending_mutex_);
@@ -285,12 +302,12 @@ bool NetworkEventSink::flush_pending()
         return false;
     }
     sent_events_.fetch_add(batch.size());
+    spdlog::debug("network sink sent batch: count={} endpoint={}", batch.size(), config_.network_endpoint);
     ack_pending(batch.size());
     return true;
 }
 
-bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const
-{
+bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const {
 #if defined(__linux__)
     addrinfo hints{};
     hints.ai_family = AF_INET;
@@ -298,11 +315,13 @@ bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const
     addrinfo* result = nullptr;
     const std::string port = std::to_string(endpoint_.port);
     if (::getaddrinfo(endpoint_.host.c_str(), port.c_str(), &hints, &result) != 0 || !result) {
+        spdlog::warn("network sink DNS resolution failed: host={} port={}", endpoint_.host, endpoint_.port);
         return false;
     }
     const int fd = ::socket(result->ai_family, result->ai_socktype | SOCK_CLOEXEC, result->ai_protocol);
     if (fd < 0) {
         ::freeaddrinfo(result);
+        spdlog::warn("network sink socket creation failed");
         return false;
     }
     timeval timeout{};
@@ -314,6 +333,8 @@ bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const
     ::freeaddrinfo(result);
     if (!connected) {
         ::close(fd);
+        spdlog::warn("network sink connect failed: host={} port={} timeout_ms={}", endpoint_.host, endpoint_.port,
+                     config_.network_connect_timeout_ms);
         return false;
     }
 
@@ -344,6 +365,7 @@ bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const
         const ssize_t sent = ::send(fd, data, remaining, MSG_NOSIGNAL);
         if (sent <= 0) {
             ::close(fd);
+            spdlog::warn("network sink send failed: endpoint={}", config_.network_endpoint);
             return false;
         }
         data += sent;
@@ -352,15 +374,19 @@ bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const
     char response[128]{};
     const ssize_t received = ::recv(fd, response, sizeof(response) - 1, 0);
     ::close(fd);
-    return received > 0 && std::string(response, static_cast<size_t>(received)).rfind("HTTP/1.1 2", 0) == 0;
+    const bool ok = received > 0 && std::string(response, static_cast<size_t>(received)).rfind("HTTP/1.1 2", 0) == 0;
+    if (!ok) {
+        spdlog::warn("network sink received non-success response: endpoint={} received_bytes={}",
+                     config_.network_endpoint, received);
+    }
+    return ok;
 #else
     (void)batch;
     return false;
 #endif
 }
 
-bool NetworkEventSink::connect_with_timeout(int fd, const addrinfo* target) const
-{
+bool NetworkEventSink::connect_with_timeout(int fd, const addrinfo* target) const {
 #if defined(__linux__)
     const int flags = ::fcntl(fd, F_GETFL, 0);
     if (flags >= 0) {
@@ -398,8 +424,7 @@ bool NetworkEventSink::connect_with_timeout(int fd, const addrinfo* target) cons
 #endif
 }
 
-NetworkEventSink::Endpoint NetworkEventSink::parse_endpoint() const
-{
+NetworkEventSink::Endpoint NetworkEventSink::parse_endpoint() const {
     Endpoint endpoint;
     std::string value = config_.network_endpoint;
     const std::string prefix = "http://";
@@ -419,8 +444,7 @@ NetworkEventSink::Endpoint NetworkEventSink::parse_endpoint() const
     return endpoint;
 }
 
-uint64_t NetworkEventSink::wal_bytes() const
-{
+uint64_t NetworkEventSink::wal_bytes() const {
     uint64_t total = 0;
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator(config_.network_wal_path, ec)) {
@@ -431,23 +455,22 @@ uint64_t NetworkEventSink::wal_bytes() const
     return total;
 }
 
-bool NetworkEventSink::wal_over_limit() const
-{
+bool NetworkEventSink::wal_over_limit() const {
     return wal_bytes() >= config_.network_wal_max_mb * 1024ULL * 1024ULL;
 }
 
-std::filesystem::path NetworkEventSink::next_wal_path()
-{
+std::filesystem::path NetworkEventSink::next_wal_path() {
     std::ostringstream name;
     name << "events_" << std::setw(6) << std::setfill('0') << current_wal_index_++ << ".wal";
     return fs::path(config_.network_wal_path) / name.str();
 }
 
-void NetworkEventSink::enforce_wal_limit()
-{
+void NetworkEventSink::enforce_wal_limit() {
     if (!wal_over_limit()) {
         return;
     }
+    spdlog::warn("network WAL over limit, rewriting pending WAL: wal_bytes={} max_mb={}", wal_bytes(),
+                 config_.network_wal_max_mb);
     std::lock_guard<std::mutex> lock(pending_mutex_);
     rewrite_wal_locked();
 }

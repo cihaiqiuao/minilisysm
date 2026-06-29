@@ -15,13 +15,11 @@ namespace lisysm {
 
 LinuxProcReader::LinuxProcReader(std::string path) : path_(std::move(path)) {}
 
-LinuxProcReader::~LinuxProcReader()
-{
+LinuxProcReader::~LinuxProcReader() {
     close_fd();
 }
 
-bool LinuxProcReader::read(std::string_view* view)
-{
+bool LinuxProcReader::read(std::string_view* view) {
 #if defined(__linux__)
     if (fd_ < 0 && !open_fd()) {
         return false;
@@ -54,8 +52,7 @@ bool LinuxProcReader::read(std::string_view* view)
 #endif
 }
 
-bool LinuxProcReader::open_fd()
-{
+bool LinuxProcReader::open_fd() {
 #if defined(__linux__)
     fd_ = ::open(path_.c_str(), O_RDONLY | O_CLOEXEC);
     return fd_ >= 0;
@@ -64,8 +61,7 @@ bool LinuxProcReader::open_fd()
 #endif
 }
 
-void LinuxProcReader::close_fd()
-{
+void LinuxProcReader::close_fd() {
 #if defined(__linux__)
     if (fd_ >= 0) {
         ::close(fd_);

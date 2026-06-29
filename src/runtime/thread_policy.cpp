@@ -12,8 +12,7 @@
 
 namespace lisysm {
 
-bool set_current_thread_affinity(int cpu, std::string* error)
-{
+bool set_current_thread_affinity(int cpu, std::string* error) {
     if (cpu < 0) {
         return true;
     }
@@ -37,8 +36,7 @@ bool set_current_thread_affinity(int cpu, std::string* error)
 #endif
 }
 
-bool set_current_thread_nice(int nice_value, std::string* error)
-{
+bool set_current_thread_nice(int nice_value, std::string* error) {
 #if defined(__linux__)
     errno = 0;
     if (setpriority(PRIO_PROCESS, 0, nice_value) != 0) {

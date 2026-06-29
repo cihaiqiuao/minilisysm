@@ -1,6 +1,8 @@
 #include "minilisysm/runtime/event_dispatcher.hpp"
 #include "minilisysm/runtime/thread_policy.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <chrono>
 #include <string>
@@ -8,49 +10,46 @@
 
 namespace lisysm {
 
-EventDispatcher::EventDispatcher(
-    const MonitorConfig& config,
-    SpscRingBuffer<InternalEvent>& source_queue,
-    std::vector<SpscRingBuffer<InternalEvent>*> sink_queues)
-    : config_(config),
-      source_queue_(source_queue),
-      sink_queues_(std::move(sink_queues))
-{
-}
+EventDispatcher::EventDispatcher(const MonitorConfig& config, SpscRingBuffer<InternalEvent>& source_queue,
+                                 std::vector<SpscRingBuffer<InternalEvent>*> sink_queues)
+    : config_(config), source_queue_(source_queue), sink_queues_(std::move(sink_queues)) {}
 
-EventDispatcher::~EventDispatcher()
-{
+EventDispatcher::~EventDispatcher() {
     stop();
 }
 
-bool EventDispatcher::start()
-{
+bool EventDispatcher::start() {
     running_.store(true);
     worker_ = std::thread(&EventDispatcher::run, this);
+    spdlog::debug("event dispatcher started: sink_queues={}", sink_queues_.size());
     return true;
 }
 
-void EventDispatcher::stop()
-{
-    running_.store(false);
+void EventDispatcher::stop() {
+    const bool was_running = running_.exchange(false);
     if (worker_.joinable()) {
         worker_.join();
     }
+    if (was_running) {
+        spdlog::debug("event dispatcher stopped");
+    }
 }
 
-DispatcherStats EventDispatcher::stats() const
-{
+DispatcherStats EventDispatcher::stats() const {
     return DispatcherStats{
         consumed_events_.load(),
         sink_queue_push_failures_.load(),
     };
 }
 
-void EventDispatcher::run()
-{
+void EventDispatcher::run() {
     std::string ignored;
-    set_current_thread_affinity(config_.persist_thread_cpu, &ignored);
-    set_current_thread_nice(config_.background_nice, &ignored);
+    if (!set_current_thread_affinity(config_.persist_thread_cpu, &ignored) && config_.persist_thread_cpu >= 0) {
+        spdlog::warn("failed to set dispatcher CPU affinity: cpu={} reason={}", config_.persist_thread_cpu, ignored);
+    }
+    if (!set_current_thread_nice(config_.background_nice, &ignored)) {
+        spdlog::warn("failed to set dispatcher nice: nice={} reason={}", config_.background_nice, ignored);
+    }
 
     while (running_.load()) {
         InternalEvent event;
@@ -63,32 +62,30 @@ void EventDispatcher::run()
     drain_source();
 }
 
-void EventDispatcher::drain_source()
-{
+void EventDispatcher::drain_source() {
     InternalEvent event;
     while (source_queue_.pop(event)) {
         dispatch(event);
     }
 }
 
-void EventDispatcher::dispatch(const InternalEvent& event)
-{
+void EventDispatcher::dispatch(const InternalEvent& event) {
     consumed_events_.fetch_add(1);
     for (SpscRingBuffer<InternalEvent>* queue : sink_queues_) {
         if (queue && !queue->push(event, event.level)) {
-            sink_queue_push_failures_.fetch_add(1);
+            const uint64_t failures = sink_queue_push_failures_.fetch_add(1) + 1;
+            if (failures == 1 || failures % 1000 == 0) {
+                spdlog::warn("dispatcher failed to push event into sink queue: failures={} event_type={} level={}",
+                             failures, to_string(event.event_type), to_string(event.level));
+            }
         }
     }
 }
 
-EventDispatcherGroup::EventDispatcherGroup(
-    const MonitorConfig& config,
-    std::vector<SpscRingBuffer<InternalEvent>*>& source_queues,
-    std::vector<std::unique_ptr<EventSink>> sinks)
-    : config_(config),
-      source_queues_(source_queues),
-      sinks_(std::move(sinks))
-{
+EventDispatcherGroup::EventDispatcherGroup(const MonitorConfig& config,
+                                           std::vector<SpscRingBuffer<InternalEvent>*>& source_queues,
+                                           std::vector<std::unique_ptr<EventSink>> sinks)
+    : config_(config), source_queues_(source_queues), sinks_(std::move(sinks)) {
     for (SpscRingBuffer<InternalEvent>* source_queue : source_queues_) {
         if (!source_queue) {
             continue;
@@ -104,28 +101,32 @@ EventDispatcherGroup::EventDispatcherGroup(
     }
 }
 
-EventDispatcherGroup::~EventDispatcherGroup()
-{
+EventDispatcherGroup::~EventDispatcherGroup() {
     stop();
 }
 
-bool EventDispatcherGroup::start()
-{
+bool EventDispatcherGroup::start() {
+    spdlog::info("event dispatcher group starting: sinks={} dispatchers={}", sinks_.size(), dispatchers_.size());
     for (const std::unique_ptr<EventSink>& sink : sinks_) {
         if (sink && !sink->start()) {
+            spdlog::error("event sink failed to start: name={}", sink->name());
             return false;
+        }
+        if (sink) {
+            spdlog::info("event sink started: name={}", sink->name());
         }
     }
     for (const std::unique_ptr<EventDispatcher>& dispatcher : dispatchers_) {
         if (dispatcher && !dispatcher->start()) {
+            spdlog::error("event dispatcher failed to start");
             return false;
         }
     }
+    spdlog::info("event dispatcher group started");
     return true;
 }
 
-void EventDispatcherGroup::stop()
-{
+void EventDispatcherGroup::stop() {
     for (std::unique_ptr<EventDispatcher>& dispatcher : dispatchers_) {
         if (dispatcher) {
             dispatcher->stop();
@@ -134,12 +135,12 @@ void EventDispatcherGroup::stop()
     for (std::unique_ptr<EventSink>& sink : sinks_) {
         if (sink) {
             sink->stop();
+            spdlog::info("event sink stopped: name={}", sink->name());
         }
     }
 }
 
-DispatcherStats EventDispatcherGroup::stats() const
-{
+DispatcherStats EventDispatcherGroup::stats() const {
     DispatcherStats total;
     for (const std::unique_ptr<EventDispatcher>& dispatcher : dispatchers_) {
         if (!dispatcher) {
@@ -164,8 +165,7 @@ DispatcherStats EventDispatcherGroup::stats() const
     return total;
 }
 
-std::vector<std::pair<std::string, SinkStats>> EventDispatcherGroup::sink_stats() const
-{
+std::vector<std::pair<std::string, SinkStats>> EventDispatcherGroup::sink_stats() const {
     std::vector<std::pair<std::string, SinkStats>> result;
     result.reserve(sinks_.size());
     for (const std::unique_ptr<EventSink>& sink : sinks_) {

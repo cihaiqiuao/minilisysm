@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "minilisysm/collectors/linux_proc_reader.hpp"
 
@@ -16,11 +16,11 @@ struct MeminfoSample {
 };
 
 class MeminfoCollector {
-public:
-    MeminfoCollector();
+  public:
+    explicit MeminfoCollector(std::string path = "/proc/meminfo");
     MeminfoSample collect();
 
-private:
+  private:
     LinuxProcReader reader_;
 };
 

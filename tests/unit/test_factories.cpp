@@ -15,16 +15,15 @@
 #include <iostream>
 #include <vector>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
-int main()
-{
+int main() {
     lisysm::MonitorConfig config;
     lisysm::SpscRingBuffer<lisysm::InternalEvent> fast_queue(config.event_queue_capacity);
     lisysm::SpscRingBuffer<lisysm::InternalEvent> sched_queue(config.event_queue_capacity);

@@ -10,16 +10,15 @@
 #include <string>
 #include <thread>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
-int main()
-{
+int main() {
     namespace fs = std::filesystem;
 
     lisysm::MonitorConfig config;
@@ -38,19 +37,42 @@ int main()
     lisysm::InternalEvent event;
     event.sequence = 7;
     event.event_type = lisysm::EventType::IoDelayRisk;
-    event.level = lisysm::EventLevel::Warning;
+    event.level = lisysm::EventLevel::Critical;
     event.value = 12.0;
     CHECK(sink_input->push(event, event.level));
 
     sink.stop();
 
-    const fs::path event_path = fs::path(config.cache_path) / "events_000001.jsonl";
-    CHECK(fs::exists(event_path));
+    fs::path event_path;
+    for (const auto& entry : fs::directory_iterator(fs::path(config.cache_path) / "jsonl")) {
+        if (entry.path().extension() == ".jsonl") {
+            event_path = entry.path();
+        }
+    }
+    fs::path summary_path;
+    for (const auto& entry : fs::directory_iterator(fs::path(config.cache_path) / "summary")) {
+        if (entry.path().extension() == ".log") {
+            summary_path = entry.path();
+        }
+    }
+    CHECK(!event_path.empty());
+    CHECK(!summary_path.empty());
+    CHECK(event_path.filename().string().find("minilisysm-events-") == 0);
+    CHECK(event_path.filename().string().find("-part000001.jsonl") != std::string::npos);
+    CHECK(summary_path.filename().string().find("minilisysm-events-") == 0);
+    CHECK(summary_path.filename().string().find("-part000001.summary.log") != std::string::npos);
 
     std::ifstream input(event_path);
     std::string content((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     CHECK(content.find("\"event_id\":\"sink-test-7\"") != std::string::npos);
     CHECK(content.find("\"event_type\":\"io_delay_risk\"") != std::string::npos);
+
+    std::ifstream summary_input(summary_path);
+    std::string summary((std::istreambuf_iterator<char>(summary_input)), std::istreambuf_iterator<char>());
+    CHECK(summary.find("[error] I/O 延迟风险 (io_delay_risk)") != std::string::npos);
+    CHECK(summary.find("当前值(value)=12.000") != std::string::npos);
+    CHECK(summary.find("事件ID=sink-test-7") != std::string::npos);
+    CHECK(summary.find("\033[") == std::string::npos);
 
     const lisysm::SinkStats stats = sink.stats();
     CHECK(stats.accepted_events == 1);

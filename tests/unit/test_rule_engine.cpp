@@ -3,16 +3,15 @@
 #include <cstdlib>
 #include <iostream>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
-int main()
-{
+int main() {
     lisysm::MonitorConfig config;
     config.mem_available_warning_mb = 100;
     config.mem_available_critical_mb = 50;

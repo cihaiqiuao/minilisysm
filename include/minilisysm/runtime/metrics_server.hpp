@@ -10,7 +10,7 @@
 namespace lisysm {
 
 class MetricsServer {
-public:
+  public:
     using RenderCallback = std::function<std::string()>;
 
     MetricsServer(const MonitorConfig& config, RenderCallback render);
@@ -21,9 +21,11 @@ public:
 
     bool start();
     void stop();
-    bool running() const { return running_.load(); }
+    bool running() const {
+        return running_.load();
+    }
 
-private:
+  private:
     void run();
     bool open_listener();
     void close_listener();

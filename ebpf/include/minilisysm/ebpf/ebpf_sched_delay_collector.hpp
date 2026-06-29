@@ -11,7 +11,7 @@
 namespace lisysm {
 
 class EbpfSchedDelayCollector : public SchedDelayCollectorInterface {
-public:
+  public:
     explicit EbpfSchedDelayCollector(const MonitorConfig& config);
     ~EbpfSchedDelayCollector() override;
 
@@ -19,10 +19,12 @@ public:
     EbpfSchedDelayCollector& operator=(const EbpfSchedDelayCollector&) = delete;
 
     std::vector<SchedDelaySample> collect() override;
-    uint64_t last_failure_count() const override { return last_failure_count_; }
+    uint64_t last_failure_count() const override {
+        return last_failure_count_;
+    }
     SchedDelayCollectorRuntimeStats runtime_stats() const override;
 
-private:
+  private:
     struct Impl;
 
     bool accepts(int32_t pid, int32_t tid) const;

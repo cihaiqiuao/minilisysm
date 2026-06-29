@@ -6,16 +6,15 @@
 #include <iostream>
 #include <string>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
-int main()
-{
+int main() {
     lisysm::MonitorConfig config;
     config.device_id = "device-1";
     config.platform = "ccu";
@@ -41,6 +40,7 @@ int main()
     const size_t initial_capacity = line.capacity();
     serializer.to_json_line(event, line);
     CHECK(line.find("\"event_type\":\"monitor_collector_failure\"") != std::string::npos);
+    CHECK(line.find("\"level\":\"warning\"") != std::string::npos);
     CHECK(line.find("\"collector_id\":1.000") != std::string::npos);
     CHECK(line.back() == '\n');
     CHECK(line.capacity() >= initial_capacity);
@@ -52,5 +52,10 @@ int main()
 
     const std::string owned = serializer.to_json_line(event);
     CHECK(owned == line);
+
+    event.level = lisysm::EventLevel::Critical;
+    serializer.to_json_line(event, line);
+    CHECK(line.find("\"level\":\"error\"") != std::string::npos);
+    CHECK(line.find("\"level\":\"critical\"") == std::string::npos);
     return EXIT_SUCCESS;
 }

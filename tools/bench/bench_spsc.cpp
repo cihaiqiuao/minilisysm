@@ -3,8 +3,7 @@
 
 #include <iostream>
 
-int main()
-{
+int main() {
     constexpr uint64_t kIterations = 1000000;
     lisysm::SpscRingBuffer<lisysm::InternalEvent> queue(4096);
     lisysm::InternalEvent event;
@@ -20,7 +19,6 @@ int main()
     }
     const uint64_t elapsed = lisysm::monotonic_ms() - start;
     std::cout << "iterations=" << kIterations << " elapsed_ms=" << elapsed
-              << " avg_ns_per_push_pop="
-              << (elapsed == 0 ? 0 : (elapsed * 1000000ULL / kIterations)) << "\n";
+              << " avg_ns_per_push_pop=" << (elapsed == 0 ? 0 : (elapsed * 1000000ULL / kIterations)) << "\n";
     return 0;
 }

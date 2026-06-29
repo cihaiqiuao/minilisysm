@@ -1,0 +1,28 @@
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  readability-*,
+  cppcoreguidelines-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-vararg,
+  -cppcoreguidelines-special-member-functions,
+  -modernize-use-trailing-return-type,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-named-parameter
+WarningsAsErrors: ''
+HeaderFilterRegex: '^(apps|include|minilisysm|src|tests|tools)/.*'
+FormatStyle: file
+CheckOptions:
+  - key: readability-function-size.LineThreshold
+    value: '120'
+  - key: readability-function-size.StatementThreshold
+    value: '80'
+  - key: modernize-use-nullptr.NullMacros
+    value: 'NULL'

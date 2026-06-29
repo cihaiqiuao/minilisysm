@@ -8,12 +8,12 @@
 namespace lisysm {
 
 class EventSerializer {
-public:
+  public:
     explicit EventSerializer(const MonitorConfig& config);
     std::string to_json_line(const InternalEvent& event) const;
     void to_json_line(const InternalEvent& event, std::string& output) const;
 
-private:
+  private:
     const MonitorConfig& config_;
 };
 

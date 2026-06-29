@@ -21,32 +21,22 @@ struct QueueStats {
 
 template <typename T>
 class SpscRingBuffer {
-public:
-    explicit SpscRingBuffer(
-        size_t capacity,
-        size_t critical_reserved_slots = 0,
-        bool drop_info_when_reserved = false,
-        bool drop_warning_when_reserved = false)
-        : capacity_(capacity + 1),
-          critical_reserved_slots_(critical_reserved_slots),
-          drop_info_when_reserved_(drop_info_when_reserved),
-          drop_warning_when_reserved_(drop_warning_when_reserved),
-          buffer_(capacity_)
-    {
-    }
+  public:
+    explicit SpscRingBuffer(size_t capacity, size_t critical_reserved_slots = 0, bool drop_info_when_reserved = false,
+                            bool drop_warning_when_reserved = false)
+        : capacity_(capacity + 1), critical_reserved_slots_(critical_reserved_slots),
+          drop_info_when_reserved_(drop_info_when_reserved), drop_warning_when_reserved_(drop_warning_when_reserved),
+          buffer_(capacity_) {}
 
-    bool push(const T& item, EventLevel level = EventLevel::Info)
-    {
+    bool push(const T& item, EventLevel level = EventLevel::Info) {
         return emplace(item, level);
     }
 
-    bool push(T&& item, EventLevel level = EventLevel::Info)
-    {
+    bool push(T&& item, EventLevel level = EventLevel::Info) {
         return emplace(std::move(item), level);
     }
 
-    bool pop(T& item)
-    {
+    bool pop(T& item) {
         const size_t tail = tail_.load(std::memory_order_relaxed);
         if (tail == head_.load(std::memory_order_acquire)) {
             return false;
@@ -56,8 +46,7 @@ public:
         return true;
     }
 
-    size_t depth() const
-    {
+    size_t depth() const {
         const size_t head = head_.load(std::memory_order_acquire);
         const size_t tail = tail_.load(std::memory_order_acquire);
         if (head >= tail) {
@@ -66,24 +55,20 @@ public:
         return capacity_ - tail + head;
     }
 
-    size_t usable_capacity() const { return capacity_ - 1; }
+    size_t usable_capacity() const {
+        return capacity_ - 1;
+    }
 
-    QueueStats stats() const
-    {
+    QueueStats stats() const {
         return QueueStats{
-            push_fail_count_.load(),
-            dropped_info_count_.load(),
-            dropped_warning_count_.load(),
-            dropped_critical_count_.load(),
-            reserve_reject_count_.load(),
-            high_watermark_.load(),
+            push_fail_count_.load(),        dropped_info_count_.load(),   dropped_warning_count_.load(),
+            dropped_critical_count_.load(), reserve_reject_count_.load(), high_watermark_.load(),
         };
     }
 
-private:
+  private:
     template <typename U>
-    bool emplace(U&& item, EventLevel level)
-    {
+    bool emplace(U&& item, EventLevel level) {
         const size_t head = head_.load(std::memory_order_relaxed);
         const size_t next = increment(head);
         if (next == tail_.load(std::memory_order_acquire)) {
@@ -99,10 +84,11 @@ private:
         update_high_watermark();
         return true;
     }
-    size_t increment(size_t value) const { return (value + 1) % capacity_; }
+    size_t increment(size_t value) const {
+        return (value + 1) % capacity_;
+    }
 
-    void update_high_watermark()
-    {
+    void update_high_watermark() {
         const size_t current = depth();
         size_t observed = high_watermark_.load(std::memory_order_relaxed);
         while (current > observed &&
@@ -110,8 +96,7 @@ private:
         }
     }
 
-    bool should_reject_for_reserve(EventLevel level) const
-    {
+    bool should_reject_for_reserve(EventLevel level) const {
         if (level == EventLevel::Critical || critical_reserved_slots_ == 0) {
             return false;
         }
@@ -130,8 +115,7 @@ private:
         return free_slots <= reserved;
     }
 
-    void record_drop(EventLevel level, bool rejected_by_reserve)
-    {
+    void record_drop(EventLevel level, bool rejected_by_reserve) {
         push_fail_count_.fetch_add(1, std::memory_order_relaxed);
         if (rejected_by_reserve) {
             reserve_reject_count_.fetch_add(1, std::memory_order_relaxed);

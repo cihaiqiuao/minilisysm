@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "minilisysm/collectors/linux_proc_reader.hpp"
 
@@ -12,11 +12,11 @@ struct SelfStatusSample {
 };
 
 class SelfStatusCollector {
-public:
-    SelfStatusCollector();
+  public:
+    explicit SelfStatusCollector(std::string path = "/proc/self/status");
     SelfStatusSample collect();
 
-private:
+  private:
     LinuxProcReader reader_;
 };
 

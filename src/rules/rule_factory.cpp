@@ -4,13 +4,11 @@
 
 namespace lisysm {
 
-std::unique_ptr<RuleEngine> RuleFactory::create_fast_rule_engine(const MonitorConfig& config)
-{
+std::unique_ptr<RuleEngine> RuleFactory::create_fast_rule_engine(const MonitorConfig& config) {
     return std::make_unique<RuleEngine>(config);
 }
 
-std::unique_ptr<RuleEngine> RuleFactory::create_sched_rule_engine(const MonitorConfig& config)
-{
+std::unique_ptr<RuleEngine> RuleFactory::create_sched_rule_engine(const MonitorConfig& config) {
     return std::make_unique<RuleEngine>(config);
 }
 

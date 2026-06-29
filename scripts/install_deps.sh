@@ -49,9 +49,17 @@ fi
 
 BASE_PACKAGES=(
     build-essential
+    clang-format
+    clang-tidy
     cmake
+    curl
+    git
+    lcov
     ninja-build
     pkg-config
+    tar
+    unzip
+    zip
 )
 
 EBPF_PACKAGES=(

@@ -27,11 +27,9 @@ struct DispatcherStats {
 };
 
 class EventDispatcher {
-public:
-    EventDispatcher(
-        const MonitorConfig& config,
-        SpscRingBuffer<InternalEvent>& source_queue,
-        std::vector<SpscRingBuffer<InternalEvent>*> sink_queues);
+  public:
+    EventDispatcher(const MonitorConfig& config, SpscRingBuffer<InternalEvent>& source_queue,
+                    std::vector<SpscRingBuffer<InternalEvent>*> sink_queues);
     ~EventDispatcher();
 
     EventDispatcher(const EventDispatcher&) = delete;
@@ -41,7 +39,7 @@ public:
     void stop();
     DispatcherStats stats() const;
 
-private:
+  private:
     void run();
     void drain_source();
     void dispatch(const InternalEvent& event);
@@ -56,11 +54,9 @@ private:
 };
 
 class EventDispatcherGroup {
-public:
-    EventDispatcherGroup(
-        const MonitorConfig& config,
-        std::vector<SpscRingBuffer<InternalEvent>*>& source_queues,
-        std::vector<std::unique_ptr<EventSink>> sinks);
+  public:
+    EventDispatcherGroup(const MonitorConfig& config, std::vector<SpscRingBuffer<InternalEvent>*>& source_queues,
+                         std::vector<std::unique_ptr<EventSink>> sinks);
     ~EventDispatcherGroup();
 
     EventDispatcherGroup(const EventDispatcherGroup&) = delete;
@@ -70,10 +66,14 @@ public:
     void stop();
     DispatcherStats stats() const;
     std::vector<std::pair<std::string, SinkStats>> sink_stats() const;
-    size_t sink_count() const { return sinks_.size(); }
-    size_t dispatcher_count() const { return dispatchers_.size(); }
+    size_t sink_count() const {
+        return sinks_.size();
+    }
+    size_t dispatcher_count() const {
+        return dispatchers_.size();
+    }
 
-private:
+  private:
     const MonitorConfig& config_;
     std::vector<SpscRingBuffer<InternalEvent>*>& source_queues_;
     std::vector<std::unique_ptr<EventSink>> sinks_;

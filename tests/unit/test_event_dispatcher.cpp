@@ -9,38 +9,36 @@
 #include <memory>
 #include <vector>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
 namespace {
 
 class FakeSink : public lisysm::EventSink {
-public:
-    const char* name() const override { return "fake"; }
-    lisysm::SpscRingBuffer<lisysm::InternalEvent>* add_input_queue(size_t capacity) override
-    {
+  public:
+    const char* name() const override {
+        return "fake";
+    }
+    lisysm::SpscRingBuffer<lisysm::InternalEvent>* add_input_queue(size_t capacity) override {
         queues.push_back(std::make_unique<lisysm::SpscRingBuffer<lisysm::InternalEvent>>(capacity));
         return queues.back().get();
     }
 
-    bool start() override
-    {
+    bool start() override {
         started = true;
         return true;
     }
 
-    void stop() override
-    {
+    void stop() override {
         stopped = true;
     }
 
-    lisysm::SinkStats stats() const override
-    {
+    lisysm::SinkStats stats() const override {
         return {};
     }
 
@@ -51,8 +49,7 @@ public:
 
 } // namespace
 
-int main()
-{
+int main() {
     lisysm::MonitorConfig config;
 
     lisysm::SpscRingBuffer<lisysm::InternalEvent> source_queue(8);

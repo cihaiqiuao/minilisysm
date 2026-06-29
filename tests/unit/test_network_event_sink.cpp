@@ -18,19 +18,18 @@
 #include <unistd.h>
 #endif
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
 namespace {
 
 #if defined(__linux__)
-void run_server(uint16_t port, std::atomic<bool>* ready, std::atomic<bool>* received)
-{
+void run_server(uint16_t port, std::atomic<bool>* ready, std::atomic<bool>* received) {
     const int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) {
         ready->store(true);
@@ -42,8 +41,7 @@ void run_server(uint16_t port, std::atomic<bool>* ready, std::atomic<bool>* rece
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 ||
-        ::listen(fd, 1) != 0) {
+    if (::bind(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(fd, 1) != 0) {
         ready->store(true);
         ::close(fd);
         return;
@@ -66,8 +64,7 @@ void run_server(uint16_t port, std::atomic<bool>* ready, std::atomic<bool>* rece
 
 } // namespace
 
-int main()
-{
+int main() {
 #if !defined(__linux__)
     return EXIT_SUCCESS;
 #else

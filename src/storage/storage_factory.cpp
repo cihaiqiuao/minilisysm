@@ -5,8 +5,7 @@
 
 namespace lisysm {
 
-std::vector<std::unique_ptr<EventSink>> StorageFactory::create_event_sinks(const MonitorConfig& config)
-{
+std::vector<std::unique_ptr<EventSink>> StorageFactory::create_event_sinks(const MonitorConfig& config) {
     std::vector<std::unique_ptr<EventSink>> sinks;
     if (config.persistence_enable) {
         sinks.push_back(std::make_unique<JsonlEventSink>(config));

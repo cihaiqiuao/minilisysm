@@ -1,4 +1,4 @@
-﻿#include "minilisysm/collectors/meminfo_collector.hpp"
+#include "minilisysm/collectors/meminfo_collector.hpp"
 
 #include <charconv>
 #include <cstring>
@@ -7,8 +7,7 @@
 namespace lisysm {
 namespace {
 
-bool parse_kb_line(std::string_view line, const char* key, uint64_t* value)
-{
+bool parse_kb_line(std::string_view line, const char* key, uint64_t* value) {
     const size_t key_len = std::strlen(key);
     if (line.size() <= key_len || line.substr(0, key_len) != key) {
         return false;
@@ -28,10 +27,9 @@ bool parse_kb_line(std::string_view line, const char* key, uint64_t* value)
 
 } // namespace
 
-MeminfoCollector::MeminfoCollector() : reader_("/proc/meminfo") {}
+MeminfoCollector::MeminfoCollector(std::string path) : reader_(std::move(path)) {}
 
-MeminfoSample MeminfoCollector::collect()
-{
+MeminfoSample MeminfoCollector::collect() {
     MeminfoSample sample;
     std::string_view content;
     if (!reader_.read(&content)) {

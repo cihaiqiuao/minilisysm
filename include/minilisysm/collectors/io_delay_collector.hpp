@@ -19,12 +19,14 @@ struct IoDelaySample {
 };
 
 class IoDelayCollector {
-public:
-    explicit IoDelayCollector(const MonitorConfig& config);
+  public:
+    explicit IoDelayCollector(const MonitorConfig& config, std::string diskstats_path = "/proc/diskstats");
     std::vector<IoDelaySample> collect();
-    uint64_t last_failure_count() const { return last_failure_count_; }
+    uint64_t last_failure_count() const {
+        return last_failure_count_;
+    }
 
-private:
+  private:
     struct DiskStats {
         uint64_t read_ios{0};
         uint64_t read_time_ms{0};
@@ -40,6 +42,7 @@ private:
     std::unordered_map<std::string, DiskStats> read_diskstats() const;
 
     const MonitorConfig& config_;
+    std::string diskstats_path_;
     std::unordered_map<std::string, DiskStats> baselines_;
     uint64_t last_failure_count_{0};
 };

@@ -9,8 +9,7 @@
 namespace lisysm {
 namespace {
 
-bool starts_with(const std::string& value, const char* prefix)
-{
+bool starts_with(const std::string& value, const char* prefix) {
     const std::string_view view(value);
     const std::string_view wanted(prefix);
     return view.size() >= wanted.size() && view.substr(0, wanted.size()) == wanted;
@@ -18,10 +17,10 @@ bool starts_with(const std::string& value, const char* prefix)
 
 } // namespace
 
-IoDelayCollector::IoDelayCollector(const MonitorConfig& config) : config_(config) {}
+IoDelayCollector::IoDelayCollector(const MonitorConfig& config, std::string diskstats_path)
+    : config_(config), diskstats_path_(std::move(diskstats_path)) {}
 
-std::vector<IoDelaySample> IoDelayCollector::collect()
-{
+std::vector<IoDelaySample> IoDelayCollector::collect() {
     last_failure_count_ = 0;
     if (!config_.io_delay_enable) {
         return {};
@@ -67,8 +66,7 @@ std::vector<IoDelaySample> IoDelayCollector::collect()
         IoDelaySample sample;
         sample.device = device;
         sample.delta_io_count = delta_ios;
-        sample.avg_await_ms =
-            static_cast<double>(delta_read_time + delta_write_time) / static_cast<double>(delta_ios);
+        sample.avg_await_ms = static_cast<double>(delta_read_time + delta_write_time) / static_cast<double>(delta_ios);
         sample.util_percent =
             std::min(100.0, static_cast<double>(delta_io_time) * 100.0 / static_cast<double>(elapsed_ms));
         sample.in_flight = stats.in_flight;
@@ -81,22 +79,19 @@ std::vector<IoDelaySample> IoDelayCollector::collect()
     return samples;
 }
 
-bool IoDelayCollector::should_scan_device(const std::string& device) const
-{
+bool IoDelayCollector::should_scan_device(const std::string& device) const {
     if (!config_.io_device_whitelist.empty()) {
         return contains_name(config_.io_device_whitelist, device);
     }
     return !starts_with(device, "loop") && !starts_with(device, "ram") && !starts_with(device, "fd");
 }
 
-bool IoDelayCollector::contains_name(const std::vector<std::string>& names, const std::string& value) const
-{
+bool IoDelayCollector::contains_name(const std::vector<std::string>& names, const std::string& value) const {
     return std::find(names.begin(), names.end(), value) != names.end();
 }
 
-std::unordered_map<std::string, IoDelayCollector::DiskStats> IoDelayCollector::read_diskstats() const
-{
-    std::ifstream input("/proc/diskstats");
+std::unordered_map<std::string, IoDelayCollector::DiskStats> IoDelayCollector::read_diskstats() const {
+    std::ifstream input(diskstats_path_);
     if (!input) {
         return {};
     }
@@ -116,8 +111,8 @@ std::unordered_map<std::string, IoDelayCollector::DiskStats> IoDelayCollector::r
         uint64_t write_sectors = 0;
 
         if (!(stream >> major >> minor >> device >> stats.read_ios >> read_merges >> read_sectors >>
-              stats.read_time_ms >> stats.write_ios >> write_merges >> write_sectors >>
-              stats.write_time_ms >> stats.in_flight >> stats.io_time_ms)) {
+              stats.read_time_ms >> stats.write_ios >> write_merges >> write_sectors >> stats.write_time_ms >>
+              stats.in_flight >> stats.io_time_ms)) {
             continue;
         }
         (void)major;

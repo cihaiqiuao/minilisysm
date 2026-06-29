@@ -11,18 +11,16 @@
 
 namespace lisysm {
 
-std::unique_ptr<MeminfoCollector> CollectorFactory::create_meminfo_collector()
-{
+std::unique_ptr<MeminfoCollector> CollectorFactory::create_meminfo_collector() {
     return std::make_unique<MeminfoCollector>();
 }
 
-std::unique_ptr<SelfStatusCollector> CollectorFactory::create_self_status_collector()
-{
+std::unique_ptr<SelfStatusCollector> CollectorFactory::create_self_status_collector() {
     return std::make_unique<SelfStatusCollector>();
 }
 
-std::unique_ptr<SchedDelayCollectorInterface> CollectorFactory::create_sched_delay_collector(const MonitorConfig& config)
-{
+std::unique_ptr<SchedDelayCollectorInterface>
+CollectorFactory::create_sched_delay_collector(const MonitorConfig& config) {
 #if MINILISYSM_ENABLE_EBPF
     if (config.sched_delay_source == "ebpf") {
         return std::make_unique<EbpfSchedDelayCollector>(config);
@@ -33,8 +31,7 @@ std::unique_ptr<SchedDelayCollectorInterface> CollectorFactory::create_sched_del
     return std::make_unique<SchedDelayCollector>(config);
 }
 
-std::unique_ptr<IoDelayCollector> CollectorFactory::create_io_delay_collector(const MonitorConfig& config)
-{
+std::unique_ptr<IoDelayCollector> CollectorFactory::create_io_delay_collector(const MonitorConfig& config) {
     return std::make_unique<IoDelayCollector>(config);
 }
 

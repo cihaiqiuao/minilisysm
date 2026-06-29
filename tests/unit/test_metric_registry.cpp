@@ -4,16 +4,15 @@
 #include <iostream>
 #include <string>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
-int main()
-{
+int main() {
     lisysm::MetricRegistry registry;
     registry.set_gauge("minilisysm_test_gauge", 7.0, {{"device", "sda"}});
     registry.inc_counter("minilisysm_test_total", 1.0, {{"type", "a\"b"}});

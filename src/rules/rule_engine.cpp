@@ -7,28 +7,23 @@
 namespace lisysm {
 namespace {
 
-uint64_t sched_key(int32_t pid, int32_t tid)
-{
-    return (static_cast<uint64_t>(static_cast<uint32_t>(pid)) << 32U) |
-           static_cast<uint32_t>(tid);
+uint64_t sched_key(int32_t pid, int32_t tid) {
+    return (static_cast<uint64_t>(static_cast<uint32_t>(pid)) << 32U) | static_cast<uint32_t>(tid);
 }
 
-void set_evidence_key(EvidenceItem& item, const char* key)
-{
+void set_evidence_key(EvidenceItem& item, const char* key) {
     std::strncpy(item.key.data(), key, kEvidenceKeySize - 1);
     item.key[kEvidenceKeySize - 1] = '\0';
 }
 
-void set_event_target(InternalEvent& event, const std::string& target)
-{
+void set_event_target(InternalEvent& event, const std::string& target) {
     std::strncpy(event.target.data(), target.c_str(), kEventTargetSize - 1);
     event.target[kEventTargetSize - 1] = '\0';
 }
 
 } // namespace
 
-RuleEngine::RuleEngine(const MonitorConfig& config) : config_(config)
-{
+RuleEngine::RuleEngine(const MonitorConfig& config) : config_(config) {
     if (!config_.memory_rule_enable) {
         memory_.state = RuleState::Disabled;
     }
@@ -38,8 +33,7 @@ RuleEngine::RuleEngine(const MonitorConfig& config) : config_(config)
     }
 }
 
-std::optional<InternalEvent> RuleEngine::evaluate_memory(const MeminfoSample& sample)
-{
+std::optional<InternalEvent> RuleEngine::evaluate_memory(const MeminfoSample& sample) {
     if (memory_.state == RuleState::Disabled || !sample.valid) {
         return std::nullopt;
     }
@@ -57,13 +51,13 @@ std::optional<InternalEvent> RuleEngine::evaluate_memory(const MeminfoSample& sa
         config_.recovery_windows,
     };
     if (auto level = evaluate_threshold(memory_, rule, available_mb, false, false, false)) {
-        return make_memory_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active, available_mb);
+        return make_memory_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
+                                 available_mb);
     }
     return std::nullopt;
 }
 
-std::optional<InternalEvent> RuleEngine::evaluate_self_rss(uint64_t rss_kb)
-{
+std::optional<InternalEvent> RuleEngine::evaluate_self_rss(uint64_t rss_kb) {
     if (self_rss_.state == RuleState::Disabled || rss_kb == 0) {
         return std::nullopt;
     }
@@ -80,31 +74,29 @@ std::optional<InternalEvent> RuleEngine::evaluate_self_rss(uint64_t rss_kb)
         config_.self_recovery_windows,
     };
     if (auto level = evaluate_threshold(self_rss_, rule, rss_mb, false, false, false)) {
-        return make_self_rss_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active, rss_mb);
+        return make_self_rss_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
+                                   rss_mb);
     }
     return std::nullopt;
 }
 
-std::optional<InternalEvent> RuleEngine::evaluate_queue(const QueueSnapshot& snapshot)
-{
+std::optional<InternalEvent> RuleEngine::evaluate_queue(const QueueSnapshot& snapshot) {
     if (queue_.state == RuleState::Disabled || (snapshot.capacity == 0 && snapshot.sink_capacity == 0)) {
         return std::nullopt;
     }
-    const double source_percent = snapshot.capacity == 0
-        ? 0.0
-        : static_cast<double>(snapshot.depth) * 100.0 / static_cast<double>(snapshot.capacity);
-    const double sink_percent = snapshot.sink_capacity == 0
-        ? 0.0
-        : static_cast<double>(snapshot.sink_depth) * 100.0 / static_cast<double>(snapshot.sink_capacity);
+    const double source_percent =
+        snapshot.capacity == 0 ? 0.0
+                               : static_cast<double>(snapshot.depth) * 100.0 / static_cast<double>(snapshot.capacity);
+    const double sink_percent = snapshot.sink_capacity == 0 ? 0.0
+                                                            : static_cast<double>(snapshot.sink_depth) * 100.0 /
+                                                                  static_cast<double>(snapshot.sink_capacity);
     const double queue_percent = std::max(source_percent, sink_percent);
     const uint64_t total_drop_count =
         snapshot.dropped_count + snapshot.sink_dropped_count + snapshot.dispatcher_sink_push_failures;
-    const uint64_t total_critical_drop_count =
-        snapshot.dropped_critical_count + snapshot.sink_dropped_critical_count;
+    const uint64_t total_critical_drop_count = snapshot.dropped_critical_count + snapshot.sink_dropped_critical_count;
     const bool new_drop = total_drop_count > last_queue_drop_count_;
     const bool new_critical_drop = total_critical_drop_count > last_queue_critical_drop_count_;
-    const bool new_dispatcher_failure =
-        snapshot.dispatcher_sink_push_failures > last_queue_dispatcher_failure_count_;
+    const bool new_dispatcher_failure = snapshot.dispatcher_sink_push_failures > last_queue_dispatcher_failure_count_;
     last_queue_drop_count_ = total_drop_count;
     last_queue_critical_drop_count_ = total_critical_drop_count;
     last_queue_dispatcher_failure_count_ = snapshot.dispatcher_sink_push_failures;
@@ -120,27 +112,21 @@ std::optional<InternalEvent> RuleEngine::evaluate_queue(const QueueSnapshot& sna
         config_.self_recovery_windows,
         config_.fast_collect_interval_ms * config_.continuous_warning_windows / 1000,
     };
-    if (auto level = evaluate_threshold(
-            queue_,
-            rule,
-            queue_percent,
-            new_drop || new_dispatcher_failure,
-            new_critical_drop,
-            new_drop || new_dispatcher_failure)) {
-        return make_queue_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active, queue_percent, snapshot);
+    if (auto level = evaluate_threshold(queue_, rule, queue_percent, new_drop || new_dispatcher_failure,
+                                        new_critical_drop, new_drop || new_dispatcher_failure)) {
+        return make_queue_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
+                                queue_percent, snapshot);
     }
     return std::nullopt;
 }
 
-std::optional<InternalEvent> RuleEngine::evaluate_sched_delay(const SchedDelaySample& sample)
-{
+std::optional<InternalEvent> RuleEngine::evaluate_sched_delay(const SchedDelaySample& sample) {
     if (!config_.sched_delay_enable || !sample.valid) {
         return std::nullopt;
     }
     RuleContext& context = sched_delay_[sched_key(sample.pid, sample.tid)];
     const double wait_us = static_cast<double>(sample.delta_wait_sum_us);
-    const bool switch_hit =
-        sample.delta_involuntary_switches >= config_.sched_involuntary_switch_warning;
+    const bool switch_hit = sample.delta_involuntary_switches >= config_.sched_involuntary_switch_warning;
     const ThresholdRuleDefinition rule{
         RuleId::SchedDelay,
         EventType::SchedDelayRisk,
@@ -154,18 +140,14 @@ std::optional<InternalEvent> RuleEngine::evaluate_sched_delay(const SchedDelaySa
     };
     const double evaluated_wait_us = switch_hit ? wait_us : 0.0;
     if (auto level = evaluate_threshold(context, rule, evaluated_wait_us, false, false, false)) {
-        return make_sched_delay_event(
-            sample,
-            *level,
-            *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
-            wait_us,
-            context);
+        return make_sched_delay_event(sample, *level,
+                                      *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
+                                      wait_us, context);
     }
     return std::nullopt;
 }
 
-std::optional<InternalEvent> RuleEngine::evaluate_io_delay(const IoDelaySample& sample)
-{
+std::optional<InternalEvent> RuleEngine::evaluate_io_delay(const IoDelaySample& sample) {
     if (!config_.io_delay_enable || !sample.valid || sample.device.empty()) {
         return std::nullopt;
     }
@@ -186,31 +168,25 @@ std::optional<InternalEvent> RuleEngine::evaluate_io_delay(const IoDelaySample& 
         config_.io_recovery_windows,
         config_.fast_collect_interval_ms * config_.io_continuous_warning_windows / 1000,
     };
-    if (auto level = evaluate_threshold(context, rule, await_ms, warning_util_hit, critical_util_hit, recovery_blocked)) {
-        return make_io_delay_event(sample, *level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active, await_ms, context);
+    if (auto level =
+            evaluate_threshold(context, rule, await_ms, warning_util_hit, critical_util_hit, recovery_blocked)) {
+        return make_io_delay_event(sample, *level,
+                                   *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
+                                   await_ms, context);
     }
     return std::nullopt;
 }
 
-std::optional<EventLevel> RuleEngine::evaluate_threshold(
-    RuleContext& context,
-    const ThresholdRuleDefinition& definition,
-    double value,
-    bool external_warning_trigger,
-    bool external_critical_trigger,
-    bool external_recovery_blocked)
-{
+std::optional<EventLevel> RuleEngine::evaluate_threshold(RuleContext& context,
+                                                         const ThresholdRuleDefinition& definition, double value,
+                                                         bool external_warning_trigger, bool external_critical_trigger,
+                                                         bool external_recovery_blocked) {
     context.max_value = std::max(context.max_value, value);
-    const auto above_or_equal = [](double lhs, double rhs) {
-        return lhs >= rhs;
-    };
-    const auto below_or_equal = [](double lhs, double rhs) {
-        return lhs <= rhs;
-    };
-    const bool threshold_critical_hit =
-        definition.direction == ThresholdDirection::GreaterOrEqual
-             ? above_or_equal(value, definition.critical_threshold)
-             : below_or_equal(value, definition.critical_threshold);
+    const auto above_or_equal = [](double lhs, double rhs) { return lhs >= rhs; };
+    const auto below_or_equal = [](double lhs, double rhs) { return lhs <= rhs; };
+    const bool threshold_critical_hit = definition.direction == ThresholdDirection::GreaterOrEqual
+                                            ? above_or_equal(value, definition.critical_threshold)
+                                            : below_or_equal(value, definition.critical_threshold);
     const bool critical_hit = threshold_critical_hit || external_critical_trigger;
     if (critical_hit) {
         ++context.hit_count;
@@ -225,10 +201,9 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(
         return std::nullopt;
     }
 
-    const bool threshold_warning_hit =
-        definition.direction == ThresholdDirection::GreaterOrEqual
-             ? above_or_equal(value, definition.warning_threshold)
-             : below_or_equal(value, definition.warning_threshold);
+    const bool threshold_warning_hit = definition.direction == ThresholdDirection::GreaterOrEqual
+                                           ? above_or_equal(value, definition.warning_threshold)
+                                           : below_or_equal(value, definition.warning_threshold);
     const bool warning_hit = threshold_warning_hit || external_warning_trigger;
     if (warning_hit) {
         ++context.hit_count;
@@ -260,21 +235,16 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(
     return std::nullopt;
 }
 
-bool RuleEngine::recovered(
-    const ThresholdRuleDefinition& definition,
-    double value,
-    bool extra_recovery_condition) const
-{
+bool RuleEngine::recovered(const ThresholdRuleDefinition& definition, double value,
+                           bool extra_recovery_condition) const {
     if (!extra_recovery_condition) {
         return false;
     }
-    return definition.direction == ThresholdDirection::GreaterOrEqual
-        ? value <= definition.recovery_threshold
-        : value >= definition.recovery_threshold;
+    return definition.direction == ThresholdDirection::GreaterOrEqual ? value <= definition.recovery_threshold
+                                                                      : value >= definition.recovery_threshold;
 }
 
-InternalEvent RuleEngine::make_memory_event(EventLevel level, EventStatus status, double value_mb) const
-{
+InternalEvent RuleEngine::make_memory_event(EventLevel level, EventStatus status, double value_mb) const {
     InternalEvent event;
     event.rule_id = static_cast<uint32_t>(RuleId::MemoryPressure);
     event.event_type = EventType::MemoryPressure;
@@ -294,8 +264,7 @@ InternalEvent RuleEngine::make_memory_event(EventLevel level, EventStatus status
     return event;
 }
 
-InternalEvent RuleEngine::make_self_rss_event(EventLevel level, EventStatus status, double rss_mb) const
-{
+InternalEvent RuleEngine::make_self_rss_event(EventLevel level, EventStatus status, double rss_mb) const {
     InternalEvent event;
     event.rule_id = static_cast<uint32_t>(RuleId::SelfRssPressure);
     event.event_type = EventType::MonitorMemoryPressure;
@@ -315,12 +284,8 @@ InternalEvent RuleEngine::make_self_rss_event(EventLevel level, EventStatus stat
     return event;
 }
 
-InternalEvent RuleEngine::make_queue_event(
-    EventLevel level,
-    EventStatus status,
-    double queue_percent,
-    const QueueSnapshot& snapshot) const
-{
+InternalEvent RuleEngine::make_queue_event(EventLevel level, EventStatus status, double queue_percent,
+                                           const QueueSnapshot& snapshot) const {
     InternalEvent event;
     event.rule_id = static_cast<uint32_t>(RuleId::QueuePressure);
     event.event_type = EventType::QueuePressure;
@@ -333,18 +298,19 @@ InternalEvent RuleEngine::make_queue_event(
     event.continuous_hit_count = queue_.hit_count;
     event.hit_count = queue_.total_hit_count;
     event.evidence_count = 6;
-    const double source_percent = snapshot.capacity == 0
-        ? 0.0
-        : static_cast<double>(snapshot.depth) * 100.0 / static_cast<double>(snapshot.capacity);
-    const double sink_percent = snapshot.sink_capacity == 0
-        ? 0.0
-        : static_cast<double>(snapshot.sink_depth) * 100.0 / static_cast<double>(snapshot.sink_capacity);
-    const double source_high_percent = snapshot.capacity == 0
-        ? 0.0
-        : static_cast<double>(snapshot.high_watermark) * 100.0 / static_cast<double>(snapshot.capacity);
-    const double sink_high_percent = snapshot.sink_capacity == 0
-        ? 0.0
-        : static_cast<double>(snapshot.sink_high_watermark) * 100.0 / static_cast<double>(snapshot.sink_capacity);
+    const double source_percent =
+        snapshot.capacity == 0 ? 0.0
+                               : static_cast<double>(snapshot.depth) * 100.0 / static_cast<double>(snapshot.capacity);
+    const double sink_percent = snapshot.sink_capacity == 0 ? 0.0
+                                                            : static_cast<double>(snapshot.sink_depth) * 100.0 /
+                                                                  static_cast<double>(snapshot.sink_capacity);
+    const double source_high_percent = snapshot.capacity == 0 ? 0.0
+                                                              : static_cast<double>(snapshot.high_watermark) * 100.0 /
+                                                                    static_cast<double>(snapshot.capacity);
+    const double sink_high_percent =
+        snapshot.sink_capacity == 0
+            ? 0.0
+            : static_cast<double>(snapshot.sink_high_watermark) * 100.0 / static_cast<double>(snapshot.sink_capacity);
     set_evidence_key(event.evidence[0], "source_queue_percent");
     event.evidence[0].value = source_percent;
     set_evidence_key(event.evidence[1], "sink_queue_percent");
@@ -361,13 +327,8 @@ InternalEvent RuleEngine::make_queue_event(
     return event;
 }
 
-InternalEvent RuleEngine::make_sched_delay_event(
-    const SchedDelaySample& sample,
-    EventLevel level,
-    EventStatus status,
-    double wait_sum_us,
-    const RuleContext& context) const
-{
+InternalEvent RuleEngine::make_sched_delay_event(const SchedDelaySample& sample, EventLevel level, EventStatus status,
+                                                 double wait_sum_us, const RuleContext& context) const {
     InternalEvent event;
     event.rule_id = static_cast<uint32_t>(RuleId::SchedDelay);
     event.event_type = EventType::SchedDelayRisk;
@@ -397,13 +358,8 @@ InternalEvent RuleEngine::make_sched_delay_event(
     return event;
 }
 
-InternalEvent RuleEngine::make_io_delay_event(
-    const IoDelaySample& sample,
-    EventLevel level,
-    EventStatus status,
-    double await_ms,
-    const RuleContext& context) const
-{
+InternalEvent RuleEngine::make_io_delay_event(const IoDelaySample& sample, EventLevel level, EventStatus status,
+                                              double await_ms, const RuleContext& context) const {
     InternalEvent event;
     event.rule_id = static_cast<uint32_t>(RuleId::IoDelay);
     event.event_type = EventType::IoDelayRisk;

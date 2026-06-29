@@ -1,0 +1,19 @@
+[Unit]
+Description=minilisysm Linux stability monitor
+Documentation=file://@ROOT_DIR@/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@ROOT_DIR@
+ExecStart=@ROOT_DIR@/scripts/run.sh --cpu @CPU_SET@@CONFIG_ARG@
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

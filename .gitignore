@@ -1,8 +1,14 @@
 build/
-build-asan/
-build-ebpf/
+install/
 out/
+logs/*
+!logs/.gitkeep
 lisysm_events/
+lisysm_events_event_test/
+lisysm_logs/
+lisysm_wal/
+.cache/
+vcpkg_installed/
 *.user
 *.swp
 *.tmp

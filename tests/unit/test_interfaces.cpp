@@ -6,39 +6,50 @@
 #include <memory>
 #include <vector>
 
-#define CHECK(condition)                                                                            \
-    do {                                                                                            \
-        if (!(condition)) {                                                                         \
-            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";          \
-            return EXIT_FAILURE;                                                                    \
-        }                                                                                           \
+#define CHECK(condition)                                                                                               \
+    do {                                                                                                               \
+        if (!(condition)) {                                                                                            \
+            std::cerr << "check failed: " #condition << " at line " << __LINE__ << "\n";                               \
+            return EXIT_FAILURE;                                                                                       \
+        }                                                                                                              \
     } while (false)
 
 namespace {
 
 class FakeSink final : public lisysm::EventSink {
-public:
-    const char* name() const override { return "fake"; }
+  public:
+    const char* name() const override {
+        return "fake";
+    }
 
-    lisysm::SpscRingBuffer<lisysm::InternalEvent>* add_input_queue(size_t capacity) override
-    {
+    lisysm::SpscRingBuffer<lisysm::InternalEvent>* add_input_queue(size_t capacity) override {
         queue = std::make_unique<lisysm::SpscRingBuffer<lisysm::InternalEvent>>(capacity);
         return queue.get();
     }
 
-    bool start() override { return true; }
+    bool start() override {
+        return true;
+    }
     void stop() override {}
-    lisysm::SinkStats stats() const override { return stats_; }
+    lisysm::SinkStats stats() const override {
+        return stats_;
+    }
 
     lisysm::SinkStats stats_;
     std::unique_ptr<lisysm::SpscRingBuffer<lisysm::InternalEvent>> queue;
 };
 
 class FakeSchedCollector final : public lisysm::SchedDelayCollectorInterface {
-public:
-    std::vector<lisysm::SchedDelaySample> collect() override { return {sample}; }
-    uint64_t last_failure_count() const override { return failures; }
-    lisysm::SchedDelayCollectorRuntimeStats runtime_stats() const override { return runtime; }
+  public:
+    std::vector<lisysm::SchedDelaySample> collect() override {
+        return {sample};
+    }
+    uint64_t last_failure_count() const override {
+        return failures;
+    }
+    lisysm::SchedDelayCollectorRuntimeStats runtime_stats() const override {
+        return runtime;
+    }
 
     lisysm::SchedDelaySample sample;
     lisysm::SchedDelayCollectorRuntimeStats runtime;
@@ -47,8 +58,7 @@ public:
 
 } // namespace
 
-int main()
-{
+int main() {
     FakeSink sink;
     CHECK(sink.name()[0] == 'f');
     CHECK(sink.add_input_queue(4) != nullptr);

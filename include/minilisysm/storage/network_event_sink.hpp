@@ -17,20 +17,22 @@ struct addrinfo;
 namespace lisysm {
 
 class NetworkEventSink : public EventSink {
-public:
+  public:
     explicit NetworkEventSink(const MonitorConfig& config);
     ~NetworkEventSink() override;
 
     NetworkEventSink(const NetworkEventSink&) = delete;
     NetworkEventSink& operator=(const NetworkEventSink&) = delete;
 
-    const char* name() const override { return "network"; }
+    const char* name() const override {
+        return "network";
+    }
     SpscRingBuffer<InternalEvent>* add_input_queue(size_t capacity) override;
     bool start() override;
     void stop() override;
     SinkStats stats() const override;
 
-private:
+  private:
     struct Endpoint {
         std::string host;
         uint16_t port{80};

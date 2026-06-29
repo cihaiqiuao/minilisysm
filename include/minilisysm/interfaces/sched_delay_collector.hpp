@@ -29,11 +29,13 @@ struct SchedDelayCollectorRuntimeStats {
 };
 
 class SchedDelayCollectorInterface {
-public:
+  public:
     virtual ~SchedDelayCollectorInterface() = default;
     virtual std::vector<SchedDelaySample> collect() = 0;
     virtual uint64_t last_failure_count() const = 0;
-    virtual SchedDelayCollectorRuntimeStats runtime_stats() const { return {}; }
+    virtual SchedDelayCollectorRuntimeStats runtime_stats() const {
+        return {};
+    }
 };
 
 } // namespace lisysm

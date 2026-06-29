@@ -39,10 +39,10 @@ source=ebpf
 运行 eBPF 版本需要 root/sudo 权限：
 
 ```bash
-sudo /tmp/minilisysm-build-ebpf/minilisysm configs/lisysm_monitor.ini
+sudo ./install/bin/minilisysm
 ```
 
-在 WSL 的 `/mnt/e/...` 这类 Windows 挂载盘路径下，`scripts/build.sh --ebpf` 会自动把构建目录切到 `/tmp/minilisysm-build-ebpf`，脚本输出里会打印最终 binary 路径。
+在 WSL 的 `/mnt/e/...` 这类 Windows 挂载盘路径下，`scripts/build.sh --ebpf` 会自动把中间构建目录切到 `/tmp/minilisysm-build-ebpf`。最终可运行产物仍安装到项目目录下的 `install/`。
 
 ## 采集语义
 

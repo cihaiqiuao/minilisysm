@@ -1,4 +1,4 @@
-﻿#include "minilisysm/collectors/self_status_collector.hpp"
+#include "minilisysm/collectors/self_status_collector.hpp"
 
 #include <charconv>
 #include <cstring>
@@ -8,8 +8,7 @@
 namespace lisysm {
 namespace {
 
-bool parse_kb_line(std::string_view line, const char* key, uint64_t* value)
-{
+bool parse_kb_line(std::string_view line, const char* key, uint64_t* value) {
     const size_t key_len = std::strlen(key);
     if (line.size() <= key_len || line.substr(0, key_len) != key) {
         return false;
@@ -29,10 +28,9 @@ bool parse_kb_line(std::string_view line, const char* key, uint64_t* value)
 
 } // namespace
 
-SelfStatusCollector::SelfStatusCollector() : reader_("/proc/self/status") {}
+SelfStatusCollector::SelfStatusCollector(std::string path) : reader_(std::move(path)) {}
 
-SelfStatusSample SelfStatusCollector::collect()
-{
+SelfStatusSample SelfStatusCollector::collect() {
     SelfStatusSample sample;
     std::string_view content;
     if (!reader_.read(&content)) {

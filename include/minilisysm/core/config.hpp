@@ -24,6 +24,15 @@ struct MonitorConfig {
     bool metrics_scrape_collectors{true};
     bool metrics_scrape_rule_state{true};
 
+    bool agent_log_enable{true};
+    std::string agent_log_level{"info"};
+    bool agent_log_console{true};
+    std::string agent_log_path{"./logs/agent/minilisysm-agent.log"};
+    std::string agent_log_rotation{"size"};
+    uint64_t agent_log_rotate_mb{16};
+    uint32_t agent_log_rotate_files{8};
+    uint32_t agent_log_async_queue_size{8192};
+
     int fast_collector_cpu{-1};
     int sched_collector_cpu{-1};
     int persist_thread_cpu{-1};
@@ -92,11 +101,13 @@ struct MonitorConfig {
     uint32_t io_max_targets{16};
 
     bool persistence_enable{true};
-    std::string cache_path{"./lisysm_events"};
+    std::string cache_path{"./logs/events"};
     uint64_t cache_max_mb{100};
     uint64_t file_rotate_mb{4};
     bool critical_fsync{true};
     uint32_t max_fsync_per_minute{6};
+    bool summary_enable{true};
+    bool summary_color{false};
 
     bool network_sink_enable{false};
     std::string network_endpoint{"http://127.0.0.1:8080/events"};
@@ -106,13 +117,13 @@ struct MonitorConfig {
     uint32_t network_request_timeout_ms{2000};
     uint32_t network_retry_base_ms{1000};
     uint32_t network_retry_max_ms{60000};
-    std::string network_wal_path{"./lisysm_wal"};
+    std::string network_wal_path{"./logs/wal"};
     uint64_t network_wal_max_mb{64};
     uint64_t network_wal_segment_mb{4};
 };
 
 class ConfigLoader {
-public:
+  public:
     static MonitorConfig load_or_default(const std::string& path);
     static bool validate(MonitorConfig& config, std::string* error);
 };

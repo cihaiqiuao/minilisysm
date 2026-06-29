@@ -23,7 +23,7 @@ class MeminfoCollector;
 class SelfStatusCollector;
 
 class Monitor {
-public:
+  public:
     explicit Monitor(MonitorConfig config);
     ~Monitor();
 
@@ -32,17 +32,16 @@ public:
 
     bool start();
     void stop();
-    bool running() const { return running_.load(); }
+    bool running() const {
+        return running_.load();
+    }
 
-private:
+  private:
     void fast_collect_loop();
     void sched_collect_loop();
     bool publish_event(SpscRingBuffer<InternalEvent>& queue, const InternalEvent& event);
-    void publish_collector_failure(
-        SpscRingBuffer<InternalEvent>& queue,
-        uint32_t collector_id,
-        std::atomic<uint64_t>& total_failures,
-        uint64_t& last_event_ms);
+    void publish_collector_failure(SpscRingBuffer<InternalEvent>& queue, uint32_t collector_id,
+                                   std::atomic<uint64_t>& total_failures, uint64_t& last_event_ms);
     void publish_started_event();
     QueueSnapshot queue_snapshot() const;
     std::string render_metrics() const;

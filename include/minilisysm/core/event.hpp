@@ -32,6 +32,7 @@ enum class EventType : uint32_t {
     MonitorMemoryPressure = 7,
     SchedDelayRisk = 8,
     IoDelayRisk = 9,
+    CpuUsageRisk = 10,
 };
 
 struct EvidenceItem {

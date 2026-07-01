@@ -60,6 +60,8 @@ const char* event_type_cn(EventType type) {
         return "调度延迟风险";
     case EventType::IoDelayRisk:
         return "I/O 延迟风险";
+    case EventType::CpuUsageRisk:
+        return "CPU 占用风险";
     }
     return "未知事件";
 }
@@ -106,6 +108,14 @@ const char* evidence_key_cn(const char* key) {
         return "恢复 await 阈值(ms)";
     if (value == "max_observed_await_ms")
         return "最大观测 await(ms)";
+    if (value == "recovery_percent")
+        return "恢复阈值(%)";
+    if (value == "max_observed_percent")
+        return "最大观测占用率(%)";
+    if (value == "delta_total_jiffies")
+        return "CPU 总 jiffies 增量";
+    if (value == "delta_idle_jiffies")
+        return "CPU 空闲 jiffies 增量";
     if (value == "collector_id")
         return "采集器 ID";
     return key;

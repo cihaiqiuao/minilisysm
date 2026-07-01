@@ -33,7 +33,7 @@ configs/*.ini
     -> apps/minilisysm-agent
        -> Monitor
           -> fast_collector
-             -> MeminfoCollector / SelfStatusCollector / queue snapshot
+             -> MeminfoCollector / CpuUsageCollector / SelfStatusCollector / queue snapshot
              -> fast RuleEngine
              -> fast SpscRingBuffer<InternalEvent>
           -> sched_collector
@@ -52,6 +52,7 @@ configs/*.ini
 当前 collector：
 
 - `MeminfoCollector`：读取 `/proc/meminfo`，产出系统内存样本。
+- `CpuUsageCollector`：读取 `/proc/stat`，按 jiffies 差分计算整体或分核心 CPU 使用率。
 - `SelfStatusCollector`：读取 `/proc/self/status`，产出监控模块自身 RSS。
 - `SchedDelayCollector`：读取 `/proc/<pid>/task/<tid>/sched`，产出调度等待和被动上下文切换增量。
 - `EbpfSchedDelayCollector`：可选 eBPF 调度延迟采集器，启用 `MINILISYSM_ENABLE_EBPF` 且配置 `source=ebpf` 后由工厂创建；加载失败时回退 `/proc` collector。
@@ -61,6 +62,7 @@ configs/*.ini
 
 - `MemoryPressure`：系统可用内存压力。
 - `SelfRssPressure`：监控模块自身 RSS 压力。
+- `CpuUsage`：整体 CPU 占用风险。
 - `QueuePressure`：事件队列拥塞和丢弃。
 - `SchedDelay`：目标线程调度等待风险。
 - `IoDelay`：块设备 I/O 堵塞风险。
@@ -75,6 +77,16 @@ configs/*.ini
 - `in_flight`：当前正在进行的 I/O 数。
 
 规则层通过 `[io_delay_rule]` 的 await 和 util 阈值判断 `io_delay_risk`。事件的 `target` 字段记录设备名，evidence 记录 I/O 数、util、in-flight 和最大观测 await。
+
+## CPU 占用检测
+
+默认 CPU 占用检测使用 `/proc/stat` 第一行 `cpu`，在两次采样之间计算总 jiffies 和 idle jiffies 差分。配置 `mode=per_core` 或 `mode=both` 后，也会读取 `cpu0`、`cpu1` 等分核心行。
+
+- `usage_percent`：`(delta_total - delta_idle) / delta_total * 100`。
+- `delta_total_jiffies`：本轮总 CPU 时间增量。
+- `delta_idle_jiffies`：本轮空闲 CPU 时间增量。
+
+规则层通过 `[cpu_usage_rule]` 的 warning、critical 和 recovery 阈值判断 `cpu_usage_risk`。不同 CPU target 使用独立状态机，`total` 和 `cpu0`、`cpu1` 等核心不会互相影响告警/恢复状态。
 
 ## 快速路径约束
 

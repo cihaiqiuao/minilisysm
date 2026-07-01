@@ -7,6 +7,7 @@
 - 系统内存压力：基于 `/proc/meminfo` 的 `MemAvailable` 判断 Warning、Critical 和 Recovery。
 - 监控自身 RSS 保护：基于 `/proc/self/status` 的 `VmRSS` 判断监控模块自身内存压力。
 - 队列压力保护：基于 SPSC 队列 depth、drop count 和容量百分比判断 `monitor_queue_pressure`。
+- CPU 占用风险：基于 `/proc/stat` jiffies 差分计算整体或分核心 CPU 使用率，判断 `cpu_usage_risk`。
 - 调度延迟趋势：默认基于 `/proc/<pid>/task/<tid>/sched` 判断 `sched_delay_risk`；启用 eBPF 构建并配置 `source=ebpf` 后，可通过 `sched_switch` tracepoint 和 libbpf ring buffer 采集调度等待时间。
 - I/O 堵塞检测：基于 `/proc/diskstats` 对块设备 I/O 完成数、读写耗时和忙碌时间做差分，判断 `io_delay_risk`。
 
@@ -87,6 +88,18 @@ logs/events/summary/minilisysm-events-20260629-111101-p6750-part000001.summary.l
 ```
 
 摘要日志默认不写 ANSI 控制字符，方便在编辑器里直接查看；需要在终端里看颜色时，可以把配置里的 `summary_color` 改成 `true` 后用 `tail -f logs/events/summary/*.summary.log` 查看。
+
+也可以使用日志查看命令：
+
+```bash
+./scripts/qalog
+./scripts/qalog -f
+./scripts/qalog --summary
+./scripts/qalog --agent
+./scripts/qalog --jsonl
+```
+
+`qalog` 默认从 `/metrics` 打印带颜色高亮的当前状态，即使没有触发告警事件也能看到 CPU、内存、队列、collector、I/O 和 sink 状态；metrics 不可用时会回退到本机 `/proc` 状态。终端输出会自动上色，重定向时自动关闭颜色，也可以显式使用 `--color` 或 `--no-color`。安装后如果 `install/bin` 已加入 `PATH`，可以直接使用 `qalog`。
 
 Agent 自身运行日志使用 `spdlog` 异步写入，默认同时输出到控制台和 `./logs/agent/minilisysm-agent.log`，支持 `debug`、`info`、`warn`、`error` 分级。默认按大小滚动，避免长期运行打满磁盘：
 

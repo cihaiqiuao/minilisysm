@@ -111,6 +111,8 @@ const char* to_string(EventType type) {
         return "sched_delay_risk";
     case EventType::IoDelayRisk:
         return "io_delay_risk";
+    case EventType::CpuUsageRisk:
+        return "cpu_usage_risk";
     }
     return "unknown";
 }

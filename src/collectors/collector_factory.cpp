@@ -1,5 +1,6 @@
 #include "minilisysm/collectors/collector_factory.hpp"
 
+#include "minilisysm/collectors/cpu_usage_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
 #include "minilisysm/collectors/sched_delay_collector.hpp"
@@ -13,6 +14,10 @@ namespace lisysm {
 
 std::unique_ptr<MeminfoCollector> CollectorFactory::create_meminfo_collector() {
     return std::make_unique<MeminfoCollector>();
+}
+
+std::unique_ptr<CpuUsageCollector> CollectorFactory::create_cpu_usage_collector(const MonitorConfig& config) {
+    return std::make_unique<CpuUsageCollector>(config);
 }
 
 std::unique_ptr<SelfStatusCollector> CollectorFactory::create_self_status_collector() {

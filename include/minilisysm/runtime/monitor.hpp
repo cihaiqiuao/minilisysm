@@ -17,6 +17,7 @@
 namespace lisysm {
 
 class EventDispatcherGroup;
+class CpuUsageCollector;
 class IoDelayCollector;
 class MetricsServer;
 class MeminfoCollector;
@@ -47,6 +48,7 @@ class Monitor {
     std::string render_metrics() const;
     void record_event_metrics(const InternalEvent& event);
     void record_meminfo_metrics(const MeminfoSample& sample);
+    void record_cpu_usage_metrics(const CpuUsageSample& sample);
     void record_self_status_metrics(const SelfStatusSample& sample);
     void record_sched_delay_metrics(const SchedDelaySample& sample);
     void record_io_delay_metrics(const IoDelaySample& sample);
@@ -57,6 +59,7 @@ class Monitor {
     std::vector<SpscRingBuffer<InternalEvent>*> event_queues_;
     std::unique_ptr<EventDispatcherGroup> dispatcher_;
     std::unique_ptr<MeminfoCollector> meminfo_;
+    std::unique_ptr<CpuUsageCollector> cpu_usage_;
     std::unique_ptr<SelfStatusCollector> self_status_;
     std::unique_ptr<SchedDelayCollectorInterface> sched_delay_;
     std::unique_ptr<IoDelayCollector> io_delay_;
@@ -68,13 +71,15 @@ class Monitor {
     std::thread sched_collector_;
     std::atomic<uint64_t> next_sequence_{1};
     std::atomic<uint64_t> meminfo_failures_{0};
+    std::atomic<uint64_t> cpu_usage_failures_{0};
     std::atomic<uint64_t> self_status_failures_{0};
     std::atomic<uint64_t> sched_delay_failures_{0};
     std::atomic<uint64_t> io_delay_failures_{0};
-    std::array<std::atomic<uint64_t>, 10> event_type_counts_{};
+    std::array<std::atomic<uint64_t>, 11> event_type_counts_{};
     std::array<std::atomic<uint64_t>, 4> event_level_counts_{};
     mutable MetricRegistry metrics_;
     uint64_t last_meminfo_failure_event_ms_{0};
+    uint64_t last_cpu_usage_failure_event_ms_{0};
     uint64_t last_self_status_failure_event_ms_{0};
     uint64_t last_sched_delay_failure_event_ms_{0};
     uint64_t last_io_delay_failure_event_ms_{0};

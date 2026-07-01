@@ -1,0 +1,609 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+KIND="status"
+FOLLOW=0
+LINES=120
+LOG_ROOT=""
+METRICS_URL="http://127.0.0.1:9108/metrics"
+COLOR_MODE="auto"
+
+usage() {
+    cat <<'EOF'
+Usage: qalog [options]
+
+Print minilisysm status and logs.
+
+Options:
+  -f, --follow       Follow the selected log, or refresh status every 2 seconds.
+  -n, --lines N      Number of lines to print. Default: 120.
+  --status           Print current runtime status from /metrics. Default.
+  --summary          Print the latest human-readable event summary.
+  --jsonl            Print the latest machine-readable event JSONL file.
+  --agent            Print the agent runtime log.
+  --root PATH        Use a specific log root. Default: ./logs or ../logs near install/bin.
+  --metrics URL      Metrics URL for --status. Default: http://127.0.0.1:9108/metrics.
+  --color            Always render ANSI colors.
+  --no-color         Disable ANSI colors.
+  -h, --help         Show this help.
+
+Examples:
+  qalog
+  qalog -f
+  qalog --metrics http://127.0.0.1:9108/metrics
+  qalog --summary
+  qalog --agent -n 200
+  qalog --jsonl
+EOF
+}
+
+while (($#)); do
+    case "$1" in
+        -f|--follow)
+            FOLLOW=1
+            shift
+            ;;
+        -n|--lines)
+            if [[ $# -lt 2 ]]; then
+                echo "$1 requires a number." >&2
+                exit 2
+            fi
+            LINES="$2"
+            shift 2
+            ;;
+        --status)
+            KIND="status"
+            shift
+            ;;
+        --summary)
+            KIND="summary"
+            shift
+            ;;
+        --jsonl)
+            KIND="jsonl"
+            shift
+            ;;
+        --agent)
+            KIND="agent"
+            shift
+            ;;
+        --root)
+            if [[ $# -lt 2 ]]; then
+                echo "--root requires a path." >&2
+                exit 2
+            fi
+            LOG_ROOT="$2"
+            shift 2
+            ;;
+        --metrics)
+            if [[ $# -lt 2 ]]; then
+                echo "--metrics requires a URL." >&2
+                exit 2
+            fi
+            METRICS_URL="$2"
+            shift 2
+            ;;
+        --color)
+            COLOR_MODE="always"
+            shift
+            ;;
+        --no-color)
+            COLOR_MODE="never"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+if ! [[ "${LINES}" =~ ^[0-9]+$ ]] || [[ "${LINES}" -eq 0 ]]; then
+    echo "--lines must be a positive integer." >&2
+    exit 2
+fi
+
+USE_COLOR=0
+case "${COLOR_MODE}" in
+    always)
+        USE_COLOR=1
+        ;;
+    never)
+        USE_COLOR=0
+        ;;
+    auto)
+        if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+            USE_COLOR=1
+        fi
+        ;;
+    *)
+        echo "unsupported color mode: ${COLOR_MODE}" >&2
+        exit 2
+        ;;
+esac
+
+if [[ "${USE_COLOR}" -eq 1 ]]; then
+    export QALOG_RESET=$'\033[0m'
+    export QALOG_BOLD=$'\033[1m'
+    export QALOG_DIM=$'\033[2m'
+    export QALOG_RED=$'\033[31m'
+    export QALOG_GREEN=$'\033[32m'
+    export QALOG_YELLOW=$'\033[33m'
+    export QALOG_BLUE=$'\033[34m'
+    export QALOG_CYAN=$'\033[36m'
+else
+    export QALOG_RESET=""
+    export QALOG_BOLD=""
+    export QALOG_DIM=""
+    export QALOG_RED=""
+    export QALOG_GREEN=""
+    export QALOG_YELLOW=""
+    export QALOG_BLUE=""
+    export QALOG_CYAN=""
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -z "${LOG_ROOT}" ]]; then
+    if [[ -d "${SCRIPT_DIR}/../logs" ]]; then
+        LOG_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)/logs"
+    elif [[ -d "${SCRIPT_DIR}/../../logs" ]]; then
+        LOG_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)/logs"
+    else
+        LOG_ROOT="$(pwd)/logs"
+    fi
+fi
+
+latest_file() {
+    local dir="$1"
+    local pattern="$2"
+    find "${dir}" -maxdepth 1 -type f -name "${pattern}" -printf '%T@ %p\n' 2>/dev/null |
+        sort -n |
+        tail -1 |
+        cut -d' ' -f2-
+}
+
+fetch_metrics() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fs --max-time 2 "${METRICS_URL}"
+        return
+    fi
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -T 2 -O - "${METRICS_URL}"
+        return
+    fi
+    echo "curl or wget is required for --status." >&2
+    return 127
+}
+
+print_local_status() {
+    local first
+    local second
+    first="$(mktemp)"
+    second="$(mktemp)"
+
+    awk '/^cpu/ {
+        name = $1 == "cpu" ? "total" : $1
+        total = $2 + $3 + $4 + $5 + $6 + $7 + $8
+        idle = $5 + $6
+        print name, total, idle
+    }' /proc/stat >"${first}"
+    sleep 0.2
+    awk '/^cpu/ {
+        name = $1 == "cpu" ? "total" : $1
+        total = $2 + $3 + $4 + $5 + $6 + $7 + $8
+        idle = $5 + $6
+        print name, total, idle
+    }' /proc/stat >"${second}"
+
+    printf '%b\n' "${QALOG_BOLD}${QALOG_CYAN}minilisysm status${QALOG_RESET}"
+    printf 'time: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf 'source: %blocal /proc fallback%b\n' "${QALOG_YELLOW}" "${QALOG_RESET}"
+
+    echo
+    printf '%b\n' "${QALOG_BOLD}${QALOG_BLUE}CPU${QALOG_RESET}"
+    awk '
+        BEGIN {
+            reset = ENVIRON["QALOG_RESET"]
+            red = ENVIRON["QALOG_RED"]
+            green = ENVIRON["QALOG_GREEN"]
+            yellow = ENVIRON["QALOG_YELLOW"]
+            dim = ENVIRON["QALOG_DIM"]
+        }
+        function level_color(value) {
+            if (value >= 95) return red
+            if (value >= 80) return yellow
+            return green
+        }
+        function bar(value, width, filled, i, output) {
+            filled = int(value * width / 100.0 + 0.5)
+            if (filled < 0) filled = 0
+            if (filled > width) filled = width
+            output = "["
+            for (i = 1; i <= width; ++i) output = output (i <= filled ? "#" : ".")
+            return output "]"
+        }
+        NR == FNR {
+            total[$1] = $2
+            idle[$1] = $3
+            order[++count] = $1
+            next
+        }
+        {
+            delta_total = $2 - total[$1]
+            delta_idle = $3 - idle[$1]
+            usage = delta_total > 0 ? (delta_total - delta_idle) * 100.0 / delta_total : 0
+            color = level_color(usage)
+            printf("  %-8s %s%s%s usage=%s%6.2f%%%s\n", $1, color, bar(usage, 20), reset, color, usage, reset)
+        }
+    ' "${first}" "${second}"
+
+    echo
+    printf '%b\n' "${QALOG_BOLD}${QALOG_BLUE}Memory${QALOG_RESET}"
+    awk '
+        BEGIN {
+            reset = ENVIRON["QALOG_RESET"]
+            green = ENVIRON["QALOG_GREEN"]
+            yellow = ENVIRON["QALOG_YELLOW"]
+            red = ENVIRON["QALOG_RED"]
+        }
+        /^MemTotal:/ { total = $2 }
+        /^MemAvailable:/ { available = $2 }
+        END {
+            if (total > 0) {
+                used = total - available
+                percent = used * 100.0 / total
+                color = percent >= 95 ? red : (percent >= 80 ? yellow : green)
+                printf("  system usage=%s%6.2f%%%s available=%8.1f MiB used=%8.1f MiB total=%8.1f MiB\n",
+                       color, percent, reset, available / 1024.0, used / 1024.0, total / 1024.0)
+            } else {
+                print "  no memory data"
+            }
+        }
+    ' /proc/meminfo
+
+    echo
+    printf '%b\n' "${QALOG_BOLD}${QALOG_BLUE}Load${QALOG_RESET}"
+    awk '{ printf("  loadavg 1m=%s 5m=%s 15m=%s running=%s\n", $1, $2, $3, $4) }' /proc/loadavg
+
+    echo
+    printf '%b\n' "${QALOG_BOLD}${QALOG_BLUE}Disk${QALOG_RESET}"
+    df -h / 2>/dev/null | awk '
+        BEGIN {
+            reset = ENVIRON["QALOG_RESET"]
+            green = ENVIRON["QALOG_GREEN"]
+            yellow = ENVIRON["QALOG_YELLOW"]
+            red = ENVIRON["QALOG_RED"]
+        }
+        NR == 2 {
+            usage = $5
+            sub(/%/, "", usage)
+            color = usage >= 95 ? red : (usage >= 80 ? yellow : green)
+            printf("  root used=%s/%s usage=%s%s%%%s mounted=%s\n", $3, $2, color, usage, reset, $6)
+        }'
+
+    echo
+    printf '%b\n' "${QALOG_BOLD}${QALOG_BLUE}minilisysm${QALOG_RESET}"
+    if pgrep -x minilisysm >/dev/null 2>&1; then
+        printf '  process=%brunning%b\n' "${QALOG_GREEN}" "${QALOG_RESET}"
+    else
+        printf '  process=%bnot_running%b\n' "${QALOG_RED}" "${QALOG_RESET}"
+    fi
+    local latest_summary
+    latest_summary="$(latest_file "${LOG_ROOT}/events/summary" '*.summary.log')"
+    if [[ -n "${latest_summary}" ]]; then
+        echo "  latest_summary=${latest_summary}"
+    fi
+    rm -f "${first}" "${second}"
+}
+
+print_status() {
+    local metrics
+    if ! metrics="$(fetch_metrics)"; then
+        echo "warning: unable to read metrics: ${METRICS_URL}" >&2
+        echo "warning: falling back to local /proc status." >&2
+        print_local_status
+        return 0
+    fi
+    if [[ -z "${metrics}" ]]; then
+        echo "warning: empty metrics response: ${METRICS_URL}" >&2
+        echo "warning: falling back to local /proc status." >&2
+        print_local_status
+        return 0
+    fi
+
+    awk '
+    BEGIN {
+        reset = ENVIRON["QALOG_RESET"]
+        bold = ENVIRON["QALOG_BOLD"]
+        dim = ENVIRON["QALOG_DIM"]
+        red = ENVIRON["QALOG_RED"]
+        green = ENVIRON["QALOG_GREEN"]
+        yellow = ENVIRON["QALOG_YELLOW"]
+        blue = ENVIRON["QALOG_BLUE"]
+        cyan = ENVIRON["QALOG_CYAN"]
+    }
+    function label(token, key, pattern, matched) {
+        pattern = key "=\"([^\"]*)\""
+        if (match(token, pattern, matched)) {
+            return matched[1]
+        }
+        return ""
+    }
+    function metric_name(token) {
+        sub(/\{.*/, "", token)
+        return token
+    }
+    function remember_cpu(key) {
+        if (!(key in seen_cpu)) {
+            seen_cpu[key] = 1
+            cpu_order[++cpu_count] = key
+        }
+    }
+    function remember_io(key) {
+        if (!(key in seen_io)) {
+            seen_io[key] = 1
+            io_order[++io_count] = key
+        }
+    }
+    function remember_queue(key) {
+        if (!(key in seen_queue)) {
+            seen_queue[key] = 1
+            queue_order[++queue_count] = key
+        }
+    }
+    function remember_collector(key) {
+        if (!(key in seen_collector)) {
+            seen_collector[key] = 1
+            collector_order[++collector_count] = key
+        }
+    }
+    function remember_sink(key) {
+        if (!(key in seen_sink)) {
+            seen_sink[key] = 1
+            sink_order[++sink_count] = key
+        }
+    }
+    function mib(bytes) {
+        return bytes / 1024.0 / 1024.0
+    }
+    function section(name) {
+        print ""
+        print bold blue name reset
+    }
+    function health_color(value, warning, critical) {
+        if (value >= critical) return red
+        if (value >= warning) return yellow
+        return green
+    }
+    function count_color(value) {
+        return value > 0 ? red : green
+    }
+    function bar(value, width, filled, i, output) {
+        filled = int(value * width / 100.0 + 0.5)
+        if (filled < 0) filled = 0
+        if (filled > width) filled = width
+        output = "["
+        for (i = 1; i <= width; ++i) output = output (i <= filled ? "#" : ".")
+        return output "]"
+    }
+    /^#/ || NF < 2 {
+        next
+    }
+    {
+        token = $1
+        name = metric_name(token)
+        value = $2 + 0
+        if (name == "minilisysm_up") up = value
+        else if (name == "minilisysm_events_published_total") events = value
+        else if (name == "minilisysm_system_memory_total_bytes") mem_total = value
+        else if (name == "minilisysm_system_memory_available_bytes") mem_available = value
+        else if (name == "minilisysm_monitor_rss_bytes") monitor_rss = value
+        else if (name == "minilisysm_cpu_usage_percent") {
+            cpu = label(token, "cpu")
+            remember_cpu(cpu)
+            cpu_usage[cpu] = value
+        } else if (name == "minilisysm_queue_depth") {
+            queue = label(token, "queue")
+            remember_queue(queue)
+            queue_depth[queue] = value
+        } else if (name == "minilisysm_queue_capacity") {
+            queue = label(token, "queue")
+            remember_queue(queue)
+            queue_capacity[queue] = value
+        } else if (name == "minilisysm_queue_dropped_total") {
+            queue = label(token, "queue")
+            remember_queue(queue)
+            queue_dropped[queue] = value
+        } else if (name == "minilisysm_queue_high_watermark") {
+            queue = label(token, "queue")
+            remember_queue(queue)
+            queue_high[queue] = value
+        } else if (name == "minilisysm_collector_elapsed_ms") {
+            collector = label(token, "collector")
+            remember_collector(collector)
+            collector_elapsed[collector] = value
+        } else if (name == "minilisysm_collector_failures_total") {
+            collector = label(token, "collector")
+            remember_collector(collector)
+            collector_failures[collector] = value
+        } else if (name == "minilisysm_io_await_ms") {
+            device = label(token, "device")
+            remember_io(device)
+            io_await[device] = value
+        } else if (name == "minilisysm_io_util_percent") {
+            device = label(token, "device")
+            remember_io(device)
+            io_util[device] = value
+        } else if (name == "minilisysm_io_delta_count") {
+            device = label(token, "device")
+            remember_io(device)
+            io_delta[device] = value
+        } else if (name == "minilisysm_sink_queue_depth") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            sink_depth[sink] = value
+        } else if (name == "minilisysm_sink_queue_capacity") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            sink_capacity[sink] = value
+        } else if (name == "minilisysm_sink_dropped_total") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            sink_dropped[sink] = value
+        } else if (name == "minilisysm_network_sent_total") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            network_sent[sink] = value
+        } else if (name == "minilisysm_network_send_errors_total") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            network_errors[sink] = value
+        } else if (name == "minilisysm_network_wal_pending_events") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            network_pending[sink] = value
+        } else if (name == "minilisysm_network_wal_bytes") {
+            sink = label(token, "sink")
+            remember_sink(sink)
+            network_wal_bytes[sink] = value
+        }
+    }
+    END {
+        print bold cyan "minilisysm status" reset
+        print "time: " strftime("%Y-%m-%d %H:%M:%S")
+        print "source: " green metrics_url reset
+        printf("up: %s%s%s\n", up == 1 ? green : red, up == 1 ? "yes" : "no", reset)
+        printf("events_published: %.0f\n", events)
+
+        section("CPU")
+        if (cpu_count == 0) {
+            print "  " yellow "no cpu metrics yet" reset
+        }
+        for (i = 1; i <= cpu_count; ++i) {
+            cpu = cpu_order[i]
+            color = health_color(cpu_usage[cpu], 80, 95)
+            printf("  %-8s %s%s%s usage=%s%6.2f%%%s\n",
+                   cpu, color, bar(cpu_usage[cpu], 20), reset, color, cpu_usage[cpu], reset)
+        }
+
+        section("Memory")
+        if (mem_total > 0) {
+            used = mem_total - mem_available
+            percent = used * 100.0 / mem_total
+            color = health_color(percent, 80, 95)
+            printf("  system %s%s%s usage=%s%6.2f%%%s available=%8.1f MiB used=%8.1f MiB total=%8.1f MiB\n",
+                   color, bar(percent, 20), reset, color, percent, reset,
+                   mib(mem_available), mib(used), mib(mem_total))
+        } else {
+            print "  " yellow "no memory metrics yet" reset
+        }
+        if (monitor_rss > 0) {
+            printf("  monitor rss=%s%8.1f MiB%s\n", green, mib(monitor_rss), reset)
+        }
+
+        section("Queues")
+        if (queue_count == 0) {
+            print "  " yellow "no queue metrics yet" reset
+        }
+        for (i = 1; i <= queue_count; ++i) {
+            queue = queue_order[i]
+            capacity = queue_capacity[queue]
+            percent = capacity > 0 ? queue_depth[queue] * 100.0 / capacity : 0
+            color = health_color(percent, 70, 90)
+            drop_color = count_color(queue_dropped[queue])
+            printf("  %-8s %s%s%s depth=%6.0f/%-6.0f usage=%s%6.2f%%%s dropped=%s%6.0f%s high=%6.0f\n",
+                   queue, color, bar(percent, 18), reset, queue_depth[queue], capacity,
+                   color, percent, reset, drop_color, queue_dropped[queue], reset, queue_high[queue])
+        }
+
+        section("Collectors")
+        if (collector_count == 0) {
+            print "  " yellow "no collector metrics yet" reset
+        }
+        for (i = 1; i <= collector_count; ++i) {
+            collector = collector_order[i]
+            failure_color = count_color(collector_failures[collector])
+            elapsed_color = collector_elapsed[collector] >= 200 ? yellow : green
+            printf("  %-12s elapsed_ms=%s%7.2f%s failures=%s%6.0f%s\n",
+                   collector, elapsed_color, collector_elapsed[collector], reset,
+                   failure_color, collector_failures[collector], reset)
+        }
+
+        section("I/O")
+        if (io_count == 0) {
+            print "  " yellow "no io metrics yet" reset
+        }
+        for (i = 1; i <= io_count; ++i) {
+            device = io_order[i]
+            await_color = health_color(io_await[device], 50, 200)
+            util_color = health_color(io_util[device], 80, 95)
+            printf("  %-12s await_ms=%s%8.3f%s util=%s%6.2f%%%s delta_io=%8.0f\n",
+                   device, await_color, io_await[device], reset,
+                   util_color, io_util[device], reset, io_delta[device])
+        }
+
+        section("Sinks")
+        if (sink_count == 0) {
+            print "  " yellow "no sink metrics yet" reset
+        }
+        for (i = 1; i <= sink_count; ++i) {
+            sink = sink_order[i]
+            capacity = sink_capacity[sink]
+            percent = capacity > 0 ? sink_depth[sink] * 100.0 / capacity : 0
+            color = health_color(percent, 70, 90)
+            drop_color = count_color(sink_dropped[sink])
+            error_color = count_color(network_errors[sink])
+            wal_color = count_color(network_pending[sink])
+            printf("  %-12s queue=%6.0f/%-6.0f usage=%s%6.2f%%%s dropped=%s%6.0f%s sent=%6.0f errors=%s%6.0f%s wal_pending=%s%6.0f%s wal=%.1f KiB\n",
+                   sink, sink_depth[sink], capacity, color, percent, reset,
+                   drop_color, sink_dropped[sink], reset, network_sent[sink],
+                   error_color, network_errors[sink], reset, wal_color, network_pending[sink], reset,
+                   network_wal_bytes[sink] / 1024.0)
+        }
+    }' metrics_url="${METRICS_URL}" <<<"${metrics}"
+}
+
+if [[ "${KIND}" == "status" ]]; then
+    if [[ "${FOLLOW}" -eq 1 ]]; then
+        while true; do
+            print_status
+            sleep 2
+            printf '\n'
+        done
+    fi
+    print_status
+    exit $?
+fi
+
+case "${KIND}" in
+    summary)
+        TARGET="$(latest_file "${LOG_ROOT}/events/summary" '*.summary.log')"
+        ;;
+    jsonl)
+        TARGET="$(latest_file "${LOG_ROOT}/events/jsonl" '*.jsonl')"
+        ;;
+    agent)
+        TARGET="${LOG_ROOT}/agent/minilisysm-agent.log"
+        ;;
+    *)
+        echo "unsupported log kind: ${KIND}" >&2
+        exit 2
+        ;;
+esac
+
+if [[ -z "${TARGET}" || ! -f "${TARGET}" ]]; then
+    echo "log file not found: kind=${KIND} root=${LOG_ROOT}" >&2
+    exit 1
+fi
+
+echo "==> ${TARGET} <=="
+if [[ "${FOLLOW}" -eq 1 ]]; then
+    exec tail -n "${LINES}" -f "${TARGET}"
+fi
+
+exec tail -n "${LINES}" "${TARGET}"

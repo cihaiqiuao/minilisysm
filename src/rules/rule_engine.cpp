@@ -31,6 +31,9 @@ RuleEngine::RuleEngine(const MonitorConfig& config) : config_(config) {
         self_rss_.state = RuleState::Disabled;
         queue_.state = RuleState::Disabled;
     }
+    if (!config_.cpu_usage_enable) {
+        cpu_usage_["total"].state = RuleState::Disabled;
+    }
 }
 
 std::optional<InternalEvent> RuleEngine::evaluate_memory(const MeminfoSample& sample) {
@@ -76,6 +79,30 @@ std::optional<InternalEvent> RuleEngine::evaluate_self_rss(uint64_t rss_kb) {
     if (auto level = evaluate_threshold(self_rss_, rule, rss_mb, false, false, false)) {
         return make_self_rss_event(*level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
                                    rss_mb);
+    }
+    return std::nullopt;
+}
+
+std::optional<InternalEvent> RuleEngine::evaluate_cpu_usage(const CpuUsageSample& sample) {
+    if (!config_.cpu_usage_enable || !sample.valid || sample.cpu.empty()) {
+        return std::nullopt;
+    }
+    RuleContext& context = cpu_usage_[sample.cpu];
+    const ThresholdRuleDefinition rule{
+        RuleId::CpuUsage,
+        EventType::CpuUsageRisk,
+        ThresholdDirection::GreaterOrEqual,
+        config_.cpu_usage_warning_percent,
+        config_.cpu_usage_critical_percent,
+        config_.cpu_usage_recovery_percent,
+        config_.cpu_usage_continuous_warning_windows,
+        config_.cpu_usage_continuous_critical_windows,
+        config_.cpu_usage_recovery_windows,
+        config_.fast_collect_interval_ms * config_.cpu_usage_continuous_warning_windows / 1000,
+    };
+    if (auto level = evaluate_threshold(context, rule, sample.usage_percent, false, false, false)) {
+        return make_cpu_usage_event(
+            *level, *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active, sample, context);
     }
     return std::nullopt;
 }
@@ -281,6 +308,32 @@ InternalEvent RuleEngine::make_self_rss_event(EventLevel level, EventStatus stat
     event.evidence[0].value = static_cast<double>(config_.self_rss_recovery_mb);
     set_evidence_key(event.evidence[1], "max_observed_rss_mb");
     event.evidence[1].value = self_rss_.max_value;
+    return event;
+}
+
+InternalEvent RuleEngine::make_cpu_usage_event(EventLevel level, EventStatus status, const CpuUsageSample& sample,
+                                               const RuleContext& context) const {
+    InternalEvent event;
+    event.rule_id = static_cast<uint32_t>(RuleId::CpuUsage);
+    event.event_type = EventType::CpuUsageRisk;
+    event.level = level;
+    event.status = status;
+    set_event_target(event, sample.cpu);
+    event.value = sample.usage_percent;
+    event.warning_threshold = config_.cpu_usage_warning_percent;
+    event.critical_threshold = config_.cpu_usage_critical_percent;
+    event.window_sec = config_.fast_collect_interval_ms * config_.cpu_usage_continuous_warning_windows / 1000;
+    event.continuous_hit_count = context.hit_count;
+    event.hit_count = context.total_hit_count;
+    event.evidence_count = 4;
+    set_evidence_key(event.evidence[0], "recovery_percent");
+    event.evidence[0].value = config_.cpu_usage_recovery_percent;
+    set_evidence_key(event.evidence[1], "max_observed_percent");
+    event.evidence[1].value = context.max_value;
+    set_evidence_key(event.evidence[2], "delta_total_jiffies");
+    event.evidence[2].value = static_cast<double>(sample.delta_total_jiffies);
+    set_evidence_key(event.evidence[3], "delta_idle_jiffies");
+    event.evidence[3].value = static_cast<double>(sample.delta_idle_jiffies);
     return event;
 }
 

@@ -100,6 +100,16 @@ struct MonitorConfig {
     uint32_t io_recovery_windows{3};
     uint32_t io_max_targets{16};
 
+    bool cpu_usage_enable{true};
+    std::string cpu_usage_mode{"total"};
+    std::vector<std::string> cpu_usage_core_whitelist{};
+    double cpu_usage_warning_percent{80.0};
+    double cpu_usage_critical_percent{95.0};
+    double cpu_usage_recovery_percent{60.0};
+    uint32_t cpu_usage_continuous_warning_windows{3};
+    uint32_t cpu_usage_continuous_critical_windows{2};
+    uint32_t cpu_usage_recovery_windows{3};
+
     bool persistence_enable{true};
     std::string cache_path{"./logs/events"};
     uint64_t cache_max_mb{100};

@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 #define CHECK(condition)                                                                                               \
     do {                                                                                                               \
@@ -42,6 +43,12 @@ int main() {
     config.io_continuous_warning_windows = 1;
     config.io_continuous_critical_windows = 1;
     config.io_recovery_windows = 1;
+    config.cpu_usage_warning_percent = 80.0;
+    config.cpu_usage_critical_percent = 95.0;
+    config.cpu_usage_recovery_percent = 60.0;
+    config.cpu_usage_continuous_warning_windows = 1;
+    config.cpu_usage_continuous_critical_windows = 1;
+    config.cpu_usage_recovery_windows = 1;
 
     lisysm::RuleEngine rules(config);
     lisysm::MeminfoSample sample;
@@ -75,6 +82,40 @@ int main() {
     auto self_recovery = rules.evaluate_self_rss(4 * 1024);
     CHECK(self_recovery.has_value());
     CHECK(self_recovery->level == lisysm::EventLevel::Recovery);
+
+    lisysm::CpuUsageSample cpu_sample;
+    cpu_sample.valid = true;
+    cpu_sample.cpu = "total";
+    cpu_sample.usage_percent = 85.0;
+    cpu_sample.delta_total_jiffies = 100;
+    cpu_sample.delta_idle_jiffies = 15;
+    auto cpu_warning = rules.evaluate_cpu_usage(cpu_sample);
+    CHECK(cpu_warning.has_value());
+    CHECK(cpu_warning->event_type == lisysm::EventType::CpuUsageRisk);
+    CHECK(cpu_warning->level == lisysm::EventLevel::Warning);
+
+    cpu_sample.usage_percent = 98.0;
+    cpu_sample.delta_idle_jiffies = 2;
+    auto cpu_critical = rules.evaluate_cpu_usage(cpu_sample);
+    CHECK(cpu_critical.has_value());
+    CHECK(cpu_critical->level == lisysm::EventLevel::Critical);
+
+    cpu_sample.usage_percent = 40.0;
+    cpu_sample.delta_idle_jiffies = 60;
+    auto cpu_recovery = rules.evaluate_cpu_usage(cpu_sample);
+    CHECK(cpu_recovery.has_value());
+    CHECK(cpu_recovery->level == lisysm::EventLevel::Recovery);
+
+    lisysm::CpuUsageSample core_sample;
+    core_sample.valid = true;
+    core_sample.cpu = "cpu2";
+    core_sample.usage_percent = 98.0;
+    core_sample.delta_total_jiffies = 100;
+    core_sample.delta_idle_jiffies = 2;
+    auto core_critical = rules.evaluate_cpu_usage(core_sample);
+    CHECK(core_critical.has_value());
+    CHECK(core_critical->target.data() == std::string("cpu2"));
+    CHECK(core_critical->level == lisysm::EventLevel::Critical);
 
     lisysm::QueueSnapshot queue_snapshot;
     queue_snapshot.depth = 8;

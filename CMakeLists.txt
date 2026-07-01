@@ -20,6 +20,7 @@ add_library(minilisysm_core
     src/core/config.cpp
     src/core/time.cpp
     src/collectors/collector_factory.cpp
+    src/collectors/cpu_usage_collector.cpp
     src/collectors/io_delay_collector.cpp
     src/collectors/linux_proc_reader.cpp
     src/collectors/meminfo_collector.cpp
@@ -150,6 +151,10 @@ install(TARGETS minilisysm
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+install(PROGRAMS scripts/qalog
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
 install(FILES configs/lisysm_monitor.ini
     DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/minilisysm
 )
@@ -187,6 +192,7 @@ if(MINILISYSM_BUILD_TESTS)
     minilisysm_add_unit_test(test_interfaces interfaces tests/unit/test_interfaces.cpp)
     minilisysm_add_unit_test(test_meminfo_collector meminfo_collector tests/unit/test_meminfo_collector.cpp)
     minilisysm_add_unit_test(test_self_status_collector self_status_collector tests/unit/test_self_status_collector.cpp)
+    minilisysm_add_unit_test(test_cpu_usage_collector cpu_usage_collector tests/unit/test_cpu_usage_collector.cpp)
     minilisysm_add_unit_test(test_io_delay_collector io_delay_collector tests/unit/test_io_delay_collector.cpp)
     minilisysm_add_unit_test(test_sched_delay_collector sched_delay_collector tests/unit/test_sched_delay_collector.cpp)
 endif()

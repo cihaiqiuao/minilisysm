@@ -1,5 +1,6 @@
 #include "minilisysm/runtime/monitor.hpp"
 #include "minilisysm/collectors/collector_factory.hpp"
+#include "minilisysm/collectors/cpu_usage_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
 #include "minilisysm/collectors/self_status_collector.hpp"
@@ -25,11 +26,12 @@ constexpr uint32_t kMeminfoCollectorId = 1;
 constexpr uint32_t kSelfStatusCollectorId = 2;
 constexpr uint32_t kSchedDelayCollectorId = 3;
 constexpr uint32_t kIoDelayCollectorId = 4;
+constexpr uint32_t kCpuUsageCollectorId = 5;
 constexpr uint64_t kCollectorFailureEventIntervalMs = 60000;
 
 size_t event_type_index(EventType type) {
     const size_t index = static_cast<size_t>(type);
-    return index < 10 ? index : 0;
+    return index < 11 ? index : 0;
 }
 
 size_t event_level_index(EventLevel level) {
@@ -63,6 +65,7 @@ Monitor::Monitor(MonitorConfig config)
       dispatcher_(
           std::make_unique<EventDispatcherGroup>(config_, event_queues_, StorageFactory::create_event_sinks(config_))),
       meminfo_(CollectorFactory::create_meminfo_collector()),
+      cpu_usage_(CollectorFactory::create_cpu_usage_collector(config_)),
       self_status_(CollectorFactory::create_self_status_collector()),
       sched_delay_(CollectorFactory::create_sched_delay_collector(config_)),
       io_delay_(CollectorFactory::create_io_delay_collector(config_)),
@@ -144,6 +147,17 @@ void Monitor::fast_collect_loop() {
             if (auto event = fast_rules_->evaluate_memory(sample)) {
                 publish_event(fast_queue_, *event);
             }
+        }
+        const std::vector<CpuUsageSample> cpu_samples = cpu_usage_->collect();
+        for (const CpuUsageSample& cpu_sample : cpu_samples) {
+            record_cpu_usage_metrics(cpu_sample);
+            if (auto event = fast_rules_->evaluate_cpu_usage(cpu_sample)) {
+                publish_event(fast_queue_, *event);
+            }
+        }
+        if (cpu_samples.empty() && cpu_usage_->last_failure_count() > 0) {
+            publish_collector_failure(fast_queue_, kCpuUsageCollectorId, cpu_usage_failures_,
+                                      last_cpu_usage_failure_event_ms_);
         }
         const SelfStatusSample self_sample = self_status_->collect();
         if (self_sample.valid) {
@@ -359,6 +373,8 @@ std::string Monitor::render_metrics() const {
     if (config_.metrics_scrape_collectors) {
         metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(meminfo_failures_.load()),
                              {{"collector", "meminfo"}});
+        metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(cpu_usage_failures_.load()),
+                             {{"collector", "cpu_usage"}});
         metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(self_status_failures_.load()),
                              {{"collector", "self_status"}});
         metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(sched_delay_failures_.load()),
@@ -395,6 +411,17 @@ void Monitor::record_meminfo_metrics(const MeminfoSample& sample) {
     metrics_.set_gauge("minilisysm_system_memory_total_bytes", static_cast<double>(sample.mem_total_kb) * 1024.0);
     metrics_.set_gauge("minilisysm_system_memory_available_bytes",
                        static_cast<double>(sample.mem_available_kb) * 1024.0);
+}
+
+void Monitor::record_cpu_usage_metrics(const CpuUsageSample& sample) {
+    if (!config_.metrics_scrape_collectors || !sample.valid) {
+        return;
+    }
+    metrics_.set_gauge("minilisysm_cpu_usage_percent", sample.usage_percent, {{"cpu", sample.cpu}});
+    metrics_.set_gauge("minilisysm_cpu_delta_total_jiffies", static_cast<double>(sample.delta_total_jiffies),
+                       {{"cpu", sample.cpu}});
+    metrics_.set_gauge("minilisysm_cpu_delta_idle_jiffies", static_cast<double>(sample.delta_idle_jiffies),
+                       {{"cpu", sample.cpu}});
 }
 
 void Monitor::record_self_status_metrics(const SelfStatusSample& sample) {

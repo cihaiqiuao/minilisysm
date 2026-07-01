@@ -162,6 +162,20 @@ sudo systemctl disable --now minilisysm.service
 ./scripts/uninstall_service.sh
 ```
 
+## 日志查看命令
+
+构建安装后会生成 `install/bin/qalog`，仓库内也可以直接使用 `scripts/qalog`：
+
+```bash
+./scripts/qalog
+./scripts/qalog -f
+./scripts/qalog --summary
+./scripts/qalog --agent -n 200
+./scripts/qalog --jsonl
+```
+
+默认从 `/metrics` 打印带颜色高亮的当前状态，即使没有触发告警事件也会显示 CPU、内存、队列、collector、I/O 和 sink 状态；metrics 不可用时回退到本机 `/proc` 状态。终端输出会自动上色，重定向时自动关闭颜色，也可以显式使用 `--color` 或 `--no-color`。`--summary` 查看最新人工事件摘要；`--agent` 查看 Agent 运行日志；`--jsonl` 查看最新机器可读事件。需要查看其他日志根目录时使用 `--root PATH`。
+
 ## I/O 堵塞检测配置
 
 默认配置启用 `[io_delay_rule]`，通过 `/proc/diskstats` 采集块设备 I/O 状态，不需要额外依赖。
@@ -186,4 +200,28 @@ max_targets=16
 
 ```ini
 device_whitelist=sda,nvme0n1
+```
+
+## CPU 占用检测配置
+
+默认配置启用 `[cpu_usage_rule]`，通过 `/proc/stat` 采集 CPU 使用率，不需要额外依赖。`mode=total` 只监控整机总占用；`mode=per_core` 只监控分核心；`mode=both` 同时监控总占用和分核心。
+
+```ini
+[cpu_usage_rule]
+enable=true
+mode=total
+core_whitelist=
+warning_percent=80
+critical_percent=95
+recovery_percent=60
+continuous_warning_windows=3
+continuous_critical_windows=2
+recovery_windows=3
+```
+
+`core_whitelist` 只在 `per_core` 或 `both` 下限制核心范围，例如：
+
+```ini
+mode=both
+core_whitelist=cpu2,cpu3
 ```

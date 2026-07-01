@@ -2,6 +2,7 @@
 
 #include "minilisysm/core/config.hpp"
 #include "minilisysm/core/event.hpp"
+#include "minilisysm/collectors/cpu_usage_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
 #include "minilisysm/interfaces/sched_delay_collector.hpp"
@@ -25,6 +26,7 @@ enum class RuleId : uint32_t {
     MemoryPressure = 1001,
     SelfRssPressure = 2001,
     QueuePressure = 2002,
+    CpuUsage = 2003,
     SchedDelay = 3001,
     IoDelay = 4001,
 };
@@ -80,6 +82,7 @@ class RuleEngine {
     explicit RuleEngine(const MonitorConfig& config);
     std::optional<InternalEvent> evaluate_memory(const MeminfoSample& sample);
     std::optional<InternalEvent> evaluate_self_rss(uint64_t rss_kb);
+    std::optional<InternalEvent> evaluate_cpu_usage(const CpuUsageSample& sample);
     std::optional<InternalEvent> evaluate_queue(const QueueSnapshot& snapshot);
     std::optional<InternalEvent> evaluate_sched_delay(const SchedDelaySample& sample);
     std::optional<InternalEvent> evaluate_io_delay(const IoDelaySample& sample);
@@ -87,6 +90,8 @@ class RuleEngine {
   private:
     InternalEvent make_memory_event(EventLevel level, EventStatus status, double value_mb) const;
     InternalEvent make_self_rss_event(EventLevel level, EventStatus status, double rss_mb) const;
+    InternalEvent make_cpu_usage_event(EventLevel level, EventStatus status, const CpuUsageSample& sample,
+                                       const RuleContext& context) const;
     InternalEvent make_queue_event(EventLevel level, EventStatus status, double queue_percent,
                                    const QueueSnapshot& snapshot) const;
     InternalEvent make_sched_delay_event(const SchedDelaySample& sample, EventLevel level, EventStatus status,
@@ -101,6 +106,7 @@ class RuleEngine {
     const MonitorConfig& config_;
     RuleContext memory_;
     RuleContext self_rss_;
+    std::unordered_map<std::string, RuleContext> cpu_usage_;
     RuleContext queue_;
     uint64_t last_queue_drop_count_{0};
     uint64_t last_queue_critical_drop_count_{0};

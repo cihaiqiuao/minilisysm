@@ -13,6 +13,7 @@
 - [2026-06-25-factory-method-refactor-cn.md](2026-06-25-factory-method-refactor-cn.md)：工厂方法重构的中文说明、设计原因和边界。
 - [2026-06-25-interface-boundary-and-dependency-policy.md](2026-06-25-interface-boundary-and-dependency-policy.md)：接口边界抽取、`interfaces/` 目录职责和第三方依赖管理预留。
 - [2026-06-29-build-runtime-quality-gates.md](2026-06-29-build-runtime-quality-gates.md)：构建/install 布局、运行脚本、日志输出、事件 summary、systemd 服务、基础质量门禁和 vcpkg 依赖管理记录。
+- [2026-07-01-cpu-usage-alert.md](2026-07-01-cpu-usage-alert.md)：CPU 占用率 collector、报警规则、metrics、summary 和验证记录。
 
 ## 约束
 

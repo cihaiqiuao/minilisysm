@@ -1,4 +1,5 @@
 #include "minilisysm/collectors/collector_factory.hpp"
+#include "minilisysm/collectors/cpu_usage_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
 #include "minilisysm/collectors/self_status_collector.hpp"
@@ -30,6 +31,7 @@ int main() {
     std::vector<lisysm::SpscRingBuffer<lisysm::InternalEvent>*> queues{&fast_queue, &sched_queue};
 
     auto meminfo = lisysm::CollectorFactory::create_meminfo_collector();
+    auto cpu_usage = lisysm::CollectorFactory::create_cpu_usage_collector(config);
     auto self_status = lisysm::CollectorFactory::create_self_status_collector();
     auto sched_delay = lisysm::CollectorFactory::create_sched_delay_collector(config);
     auto io_delay = lisysm::CollectorFactory::create_io_delay_collector(config);
@@ -38,6 +40,7 @@ int main() {
     auto sinks = lisysm::StorageFactory::create_event_sinks(config);
 
     CHECK(meminfo != nullptr);
+    CHECK(cpu_usage != nullptr);
     CHECK(self_status != nullptr);
     CHECK(sched_delay != nullptr);
     CHECK(io_delay != nullptr);

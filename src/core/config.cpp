@@ -239,6 +239,16 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path) {
     assign_int(ini, "io_delay_rule", "recovery_windows", config.io_recovery_windows);
     assign_int(ini, "io_delay_rule", "max_targets", config.io_max_targets);
 
+    assign_bool(ini, "cpu_usage_rule", "enable", config.cpu_usage_enable);
+    assign_string(ini, "cpu_usage_rule", "mode", config.cpu_usage_mode);
+    assign_csv(ini, "cpu_usage_rule", "core_whitelist", config.cpu_usage_core_whitelist);
+    assign_double(ini, "cpu_usage_rule", "warning_percent", config.cpu_usage_warning_percent);
+    assign_double(ini, "cpu_usage_rule", "critical_percent", config.cpu_usage_critical_percent);
+    assign_double(ini, "cpu_usage_rule", "recovery_percent", config.cpu_usage_recovery_percent);
+    assign_int(ini, "cpu_usage_rule", "continuous_warning_windows", config.cpu_usage_continuous_warning_windows);
+    assign_int(ini, "cpu_usage_rule", "continuous_critical_windows", config.cpu_usage_continuous_critical_windows);
+    assign_int(ini, "cpu_usage_rule", "recovery_windows", config.cpu_usage_recovery_windows);
+
     assign_bool(ini, "persistence", "enable", config.persistence_enable);
     assign_string(ini, "persistence", "cache_path", config.cache_path);
     assign_int(ini, "persistence", "cache_max_mb", config.cache_max_mb);
@@ -270,6 +280,8 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     std::transform(config.agent_log_rotation.begin(), config.agent_log_rotation.end(),
                    config.agent_log_rotation.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(config.cpu_usage_mode.begin(), config.cpu_usage_mode.end(), config.cpu_usage_mode.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (config.fast_collect_interval_ms < 100) {
         config.fast_collect_interval_ms = 100;
@@ -380,6 +392,27 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
     }
     if (config.io_max_targets == 0) {
         config.io_max_targets = 1;
+    }
+    if (config.cpu_usage_critical_percent < config.cpu_usage_warning_percent) {
+        config.cpu_usage_critical_percent = config.cpu_usage_warning_percent;
+    }
+    if (config.cpu_usage_recovery_percent > config.cpu_usage_warning_percent) {
+        config.cpu_usage_recovery_percent = config.cpu_usage_warning_percent;
+    }
+    if (config.cpu_usage_mode != "total" && config.cpu_usage_mode != "per_core" && config.cpu_usage_mode != "both") {
+        config.cpu_usage_mode = "total";
+    }
+    config.cpu_usage_warning_percent = std::max(0.0, std::min(100.0, config.cpu_usage_warning_percent));
+    config.cpu_usage_critical_percent = std::max(0.0, std::min(100.0, config.cpu_usage_critical_percent));
+    config.cpu_usage_recovery_percent = std::max(0.0, std::min(100.0, config.cpu_usage_recovery_percent));
+    if (config.cpu_usage_continuous_warning_windows == 0) {
+        config.cpu_usage_continuous_warning_windows = 1;
+    }
+    if (config.cpu_usage_continuous_critical_windows == 0) {
+        config.cpu_usage_continuous_critical_windows = 1;
+    }
+    if (config.cpu_usage_recovery_windows == 0) {
+        config.cpu_usage_recovery_windows = 1;
     }
     if (config.cache_max_mb == 0) {
         config.cache_max_mb = 1;

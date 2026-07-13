@@ -101,6 +101,32 @@ logs/events/summary/minilisysm-events-20260629-111101-p6750-part000001.summary.l
 
 `qalog` 默认从 `/metrics` 打印带颜色高亮的当前状态，即使没有触发告警事件也能看到 CPU、内存、队列、collector、I/O 和 sink 状态；metrics 不可用时会回退到本机 `/proc` 状态。终端输出会自动上色，重定向时自动关闭颜色，也可以显式使用 `--color` 或 `--no-color`。安装后如果 `install/bin` 已加入 `PATH`，可以直接使用 `qalog`。
 
+### 白名单进程监控
+
+在配置文件的 `[sched_delay_rule]` 中设置 `process_whitelist` 后，监控器会在快速采集周期内匹配对应的进程名，并在 `qalog` 的 `Whitelisted processes` 区块显示进程在线状态、PID、CPU、RSS 与线程数：
+
+```ini
+[sched_delay_rule]
+process_whitelist=train_stability
+```
+
+示例输出：
+
+```text
+Whitelisted processes
+  train_stability      up=yes
+    pid=101383  cpu=23.00% rss=85.4 MiB threads=12
+```
+
+对应 Prometheus 指标为：
+
+- `minilisysm_whitelisted_process_up{process}`
+- `minilisysm_whitelisted_process_cpu_usage_percent{process,pid}`
+- `minilisysm_whitelisted_process_rss_bytes{process,pid}`
+- `minilisysm_whitelisted_process_threads{process,pid}`
+
+其中 CPU 为该进程在一个采集周期内占用的单核百分比，多线程进程可以超过 `100%`。这些指标用于可观测性展示；当前版本尚未基于白名单进程 RSS 增长生成内存泄漏告警。
+
 Agent 自身运行日志使用 `spdlog` 异步写入，默认同时输出到控制台和 `./logs/agent/minilisysm-agent.log`，支持 `debug`、`info`、`warn`、`error` 分级。默认按大小滚动，避免长期运行打满磁盘：
 
 ```ini

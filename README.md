@@ -1,116 +1,89 @@
 # minilisysm
 
-`minilisysm` 是 Lisysm Linux 稳定性监控链路的工程化初版。当前结构按守护进程入口、核心库、独立 eBPF 模块、测试、工具和部署脚本拆分，默认面向 Ubuntu/WSL 构建验证。
+`minilisysm` 是面向 Linux 边缘设备的轻量稳定性监控服务。它定期采集系统资源、I/O、队列与指定进程状态，按阈值生成结构化事件，并通过 Prometheus `/metrics` 与终端工具 `qalog` 提供实时可观测性。
 
-当前已实现的规则链路：
+适用场景包括 RK3588S、工控机和 Ubuntu/WSL 环境中长期运行的视觉、推流或网关服务。
 
-- 系统内存压力：基于 `/proc/meminfo` 的 `MemAvailable` 判断 Warning、Critical 和 Recovery。
-- 监控自身 RSS 保护：基于 `/proc/self/status` 的 `VmRSS` 判断监控模块自身内存压力。
-- 队列压力保护：基于 SPSC 队列 depth、drop count 和容量百分比判断 `monitor_queue_pressure`。
-- CPU 占用风险：基于 `/proc/stat` jiffies 差分计算整体或分核心 CPU 使用率，判断 `cpu_usage_risk`。
-- 调度延迟趋势：默认基于 `/proc/<pid>/task/<tid>/sched` 判断 `sched_delay_risk`；启用 eBPF 构建并配置 `source=ebpf` 后，可通过 `sched_switch` tracepoint 和 libbpf ring buffer 采集调度等待时间。
-- I/O 堵塞检测：基于 `/proc/diskstats` 对块设备 I/O 完成数、读写耗时和忙碌时间做差分，判断 `io_delay_risk`。
+## 能力概览
 
-## 目录结构
+| 范围 | 数据源 | 能力 |
+| --- | --- | --- |
+| 系统内存 | `/proc/meminfo` | 可用内存阈值告警与恢复 |
+| CPU | `/proc/stat` | 整机或指定核心的使用率风险告警 |
+| 磁盘 I/O | `/proc/diskstats` | `await`、利用率与 I/O 完成量监控 |
+| 内部队列 | SPSC 队列状态 | 深度、丢弃和高水位保护 |
+| 监控器自身 | `/proc/self/status` | RSS 自保护 |
+| 白名单进程 | `/proc/<pid>` | 在线状态、CPU、RSS、线程数 |
+| 调度等待 | `/proc/.../sched` 或可选 eBPF | 调度延迟趋势与事件 |
 
-```text
-apps/minilisysm-agent/      守护进程入口
-include/minilisysm/         核心库公共头文件
-src/                        核心库实现
-ebpf/                       可选 eBPF 用户态 loader 和 BPF 程序
-configs/                    默认运行配置
-tests/unit/                 单元测试
-tools/bench/                benchmark 工具
-scripts/                    依赖安装、构建和验证脚本
-cmake/                      CMake 选项和编译器设置
-docs/                       架构、部署和 eBPF 说明
-memory/                     项目交接记录
-```
+事件默认写入 JSONL 与可读摘要日志；指标默认仅绑定到本机 `127.0.0.1:9108`。
 
-## 一键验证
+## 快速开始
 
-Ubuntu/WSL 环境安装基础依赖：
+### 1. 安装依赖并验证
 
 ```bash
+git clone https://github.com/cihaiqiuao/minilisysm.git
+cd minilisysm
+
 ./scripts/install_deps.sh
-```
-
-构建并验证 Release：
-
-```bash
 ./scripts/verify.sh
 ```
 
-项目的 C++ 第三方依赖由 vcpkg manifest 管理，当前包含 Agent 日志库 `spdlog`。`scripts/build.sh` 和 `scripts/verify.sh` 默认会自动引导 vcpkg；如果目标环境已经通过系统包提供 C++ 依赖，可以显式使用 `--no-vcpkg`。
-
-ASan/UBSan 验证：
+项目默认使用 vcpkg 管理 C++ 依赖。若系统已具备依赖，可改用：
 
 ```bash
-./scripts/build.sh --asan
-./scripts/verify.sh --asan
+./scripts/verify.sh --no-vcpkg
 ```
 
-格式化、静态检查和覆盖率报告：
+验证会构建 Release 程序、运行 CTest，并执行 SPSC 基准测试。
 
-```bash
-./scripts/format_check.sh
-./scripts/lint.sh
-./scripts/coverage.sh
-```
-
-`scripts/lint.sh` 依赖 `build/release/compile_commands.json`，如果不存在会自动配置 Release 构建目录。覆盖率报告输出到 `build/coverage-report/index.html`。
-
-可选 eBPF 构建验证：
-
-```bash
-./scripts/install_deps.sh --with-ebpf
-./scripts/build.sh --ebpf
-./scripts/verify.sh --ebpf
-```
-
-eBPF 运行需要 root/sudo 权限：
-
-```bash
-sudo ./install/bin/minilisysm
-```
-
-## 运行
+### 2. 启动监控器
 
 ```bash
 ./scripts/run.sh
 ```
 
-默认所有运行产物统一放在 `./logs/` 下。Agent 运行日志写入 `agent/`，事件缓存写入 `events/`，网络 WAL 写入 `wal/`。机器可读事件写入 `events/jsonl/` 子目录，人工排查摘要写入 `events/summary/` 子目录。文件名包含启动时间、进程号和滚动段号，例如：
+默认配置文件为：
 
 ```text
-logs/events/jsonl/minilisysm-events-20260629-111101-p6750-part000001.jsonl
-logs/events/summary/minilisysm-events-20260629-111101-p6750-part000001.summary.log
+install/etc/minilisysm/lisysm_monitor.ini
 ```
 
-摘要日志默认不写 ANSI 控制字符，方便在编辑器里直接查看；需要在终端里看颜色时，可以把配置里的 `summary_color` 改成 `true` 后用 `tail -f logs/events/summary/*.summary.log` 查看。
+使用单独的板端配置，避免后续安装覆盖运行参数：
 
-也可以使用日志查看命令：
+```bash
+cp configs/lisysm_monitor.ini /userdata/minilisysm.ini
+./scripts/run.sh --config /userdata/minilisysm.ini
+```
+
+### 3. 查看实时状态
 
 ```bash
 ./scripts/qalog
 ./scripts/qalog -f
-./scripts/qalog --summary
-./scripts/qalog --agent
-./scripts/qalog --jsonl
+
+curl -s http://127.0.0.1:9108/metrics
 ```
 
-`qalog` 默认从 `/metrics` 打印带颜色高亮的当前状态，即使没有触发告警事件也能看到 CPU、内存、队列、collector、I/O 和 sink 状态；metrics 不可用时会回退到本机 `/proc` 状态。终端输出会自动上色，重定向时自动关闭颜色，也可以显式使用 `--color` 或 `--no-color`。安装后如果 `install/bin` 已加入 `PATH`，可以直接使用 `qalog`。
+安装后的 `install/bin/qalog` 在 `PATH` 中时可直接运行 `qalog`。
 
-### 白名单进程监控
+## 监控业务进程
 
-在配置文件的 `[sched_delay_rule]` 中设置 `process_whitelist` 后，监控器会在快速采集周期内匹配对应的进程名，并在 `qalog` 的 `Whitelisted processes` 区块显示进程在线状态、PID、CPU、RSS 与线程数：
+在运行配置的 `[sched_delay_rule]` 中设置进程名白名单：
 
 ```ini
 [sched_delay_rule]
 process_whitelist=train_stability
 ```
 
-示例输出：
+进程名匹配 Linux 的 `/proc/<pid>/comm`。配置多个目标时使用逗号分隔：
+
+```ini
+process_whitelist=train_stability,another_service
+```
+
+`qalog` 将增加以下区块：
 
 ```text
 Whitelisted processes
@@ -118,85 +91,128 @@ Whitelisted processes
     pid=101383  cpu=23.00% rss=85.4 MiB threads=12
 ```
 
-对应 Prometheus 指标为：
+- `up`：是否存在匹配进程。
+- `cpu`：一个采样周期内的单核 CPU 百分比；多线程进程可以超过 `100%`。
+- `rss`：进程常驻物理内存。
+- `threads`：进程线程数。
 
-- `minilisysm_whitelisted_process_up{process}`
-- `minilisysm_whitelisted_process_cpu_usage_percent{process,pid}`
-- `minilisysm_whitelisted_process_rss_bytes{process,pid}`
-- `minilisysm_whitelisted_process_threads{process,pid}`
-
-其中 CPU 为该进程在一个采集周期内占用的单核百分比，多线程进程可以超过 `100%`。这些指标用于可观测性展示；当前版本尚未基于白名单进程 RSS 增长生成内存泄漏告警。
-
-Agent 自身运行日志使用 `spdlog` 异步写入，默认同时输出到控制台和 `./logs/agent/minilisysm-agent.log`，支持 `debug`、`info`、`warn`、`error` 分级。默认按大小滚动，避免长期运行打满磁盘：
-
-```ini
-[agent_log]
-enable=true
-level=info
-console=true
-path=./logs/agent/minilisysm-agent.log
-rotation=size
-rotate_mb=16
-rotate_files=8
-async_queue_size=8192
-```
-
-需要按天滚动时，将 `rotation` 改为 `daily`。
-
-## 构建产物布局
-
-`build/` 只作为 CMake/Ninja 中间构建目录，默认 vcpkg Release 构建位于 `build/release-vcpkg/`。正式可运行和可分发产物统一安装到 `install/`，不再按 vcpkg/no-vcpkg 拆出多份根目录：
+同时会导出以下 Prometheus 指标：
 
 ```text
-install/bin/minilisysm                    主程序
-install/etc/minilisysm/lisysm_monitor.ini 默认配置
-install/share/doc/minilisysm/             文档
+minilisysm_whitelisted_process_up{process}
+minilisysm_whitelisted_process_cpu_usage_percent{process,pid}
+minilisysm_whitelisted_process_rss_bytes{process,pid}
+minilisysm_whitelisted_process_threads{process,pid}
 ```
 
-默认情况下，`install/bin/minilisysm` 会读取 `install/etc/minilisysm/lisysm_monitor.ini`。需要临时使用其他配置时，可以把配置路径作为第一个参数传入。
+这些指标用于展示和外部告警系统接入。当前版本不会因为业务进程 RSS 增长自动生成内存泄漏告警。
 
-`scripts/run.sh` 默认通过 `taskset` 把进程绑定到 CPU2。也可以通过运行脚本指定配置和其他 CPU：
+## 关键配置
+
+配置模板在 [`configs/lisysm_monitor.ini`](configs/lisysm_monitor.ini)。常用项如下：
+
+```ini
+[linux_stability_monitor]
+fast_collect_interval_ms=1000
+
+[metrics]
+bind_host=127.0.0.1
+port=9108
+
+[memory_rule]
+mem_available_warning_mb=512
+mem_available_critical_mb=256
+
+[cpu_usage_rule]
+mode=total
+warning_percent=80
+critical_percent=95
+
+[io_delay_rule]
+await_warning_ms=50
+await_critical_ms=200
+
+[sched_delay_rule]
+source=proc
+process_whitelist=
+```
+
+日志和事件默认位于 `./logs/`：
+
+```text
+logs/agent/                  Agent 运行日志
+logs/events/jsonl/           机器可读事件
+logs/events/summary/         人工排查摘要
+logs/wal/                    网络 sink 的待发送数据
+```
+
+## systemd 部署
+
+构建后安装为开机自启服务：
 
 ```bash
-./scripts/run.sh --config ./install/etc/minilisysm/lisysm_monitor.ini
-./scripts/run.sh --cpu 1
-./scripts/run.sh --cpu 0-3 --config ./my.ini
+./scripts/install_service.sh \
+  --user "$(id -un)" \
+  --config /userdata/minilisysm.ini
 ```
 
-`--vcpkg` 和 `--no-vcpkg` 只表示依赖来源，不改变正式安装目录。`--ebpf` 会生成 eBPF 能力的正式产物并覆盖 `install/`。`--asan` 是测试产物，安装在 `build/asan-vcpkg/install/` 或 `build/asan/install/`，避免污染正式运行目录。
-
-## 开机自启动
-
-使用 systemd 安装后台服务：
-
-```bash
-./scripts/install_service.sh
-```
-
-查看状态和日志：
+查看状态与日志：
 
 ```bash
 systemctl status minilisysm.service
 journalctl -u minilisysm.service -f
 ```
 
-停用并移除服务：
+移除服务：
 
 ```bash
 ./scripts/uninstall_service.sh
 ```
 
-## 架构要点
+## 调度延迟与 eBPF
 
-- 快速路径不做网络请求、不做 JSON 序列化、不等待后台消费者。
-- 事件对象定长，SPSC 队列容量固定，队列满时记录丢弃统计并返回。
-- `fast_collector` 和 `sched_collector` 各自拥有独立 SPSC 队列。
-- 调度延迟和 I/O 堵塞共用低优先级 `sched_collector` 线程，避免额外增加采集线程数量。
-- `EventDispatcherGroup` 为每条采集队列创建独立 dispatcher，并为每个 sink 分配专属 SPSC 输入队列；当前 `JsonlEventSink` 负责 JSONL buffer 复用和滚动落盘。
-- eBPF 作为可选增强数据源，加载失败时回退 `/proc` collector，规则判断仍复用 `RuleEngine::evaluate_sched_delay()`。
+默认 `source=proc` 读取 `/proc/<pid>/task/<tid>/sched`。部分定制内核可能没有 `se.statistics.wait_sum` 字段；在这种内核上，白名单进程的 CPU、RSS、线程数仍可展示，但无法获得真实的调度等待样本。
 
-更多说明见：
+具备 BTF 的内核可启用 eBPF 数据源：
 
-- `docs/ARCHITECTURE.md`
-- `docs/DEPLOYMENT.md`
-- `docs/EBPF.md`
+```bash
+./scripts/install_deps.sh --with-ebpf
+./scripts/build.sh --ebpf
+sudo ./install/bin/minilisysm
+```
+
+并在配置中设置：
+
+```ini
+[sched_delay_rule]
+source=ebpf
+```
+
+eBPF 需要 `/sys/kernel/btf/vmlinux`、可用的 `bpftool`/`libbpf`，以及 root 或相应 BPF 权限。详细说明见 [`docs/EBPF.md`](docs/EBPF.md)。
+
+## 开发与质量检查
+
+```bash
+# AddressSanitizer / UndefinedBehaviorSanitizer
+./scripts/verify.sh --asan
+
+# 格式检查、静态检查、覆盖率
+./scripts/format_check.sh
+./scripts/lint.sh
+./scripts/coverage.sh
+```
+
+## 项目结构
+
+```text
+apps/       守护进程入口
+src/        核心实现与采集器
+include/    公共头文件
+configs/    默认配置模板
+scripts/    构建、验证、运行和 systemd 脚本
+docs/       架构、部署与 eBPF 文档
+tests/      单元测试
+memory/     调试与交接记录
+```
+
+更多设计细节参见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。

@@ -105,7 +105,18 @@ minilisysm_whitelisted_process_rss_bytes{process,pid}
 minilisysm_whitelisted_process_threads{process,pid}
 ```
 
-这些指标用于展示和外部告警系统接入。当前版本不会因为业务进程 RSS 增长自动生成内存泄漏告警。
+未启动的白名单进程不会报警。进程运行期间，监控器会以滚动窗口判断 RSS 净增长，默认 10 分钟增长 100 MiB 发 Warning、200 MiB 发 Critical，增长回落到 20 MiB 以下后发恢复事件：
+
+```ini
+[process_memory_rule]
+enable=true
+growth_warning_mb=100
+growth_critical_mb=200
+growth_recovery_mb=20
+growth_window_sec=600
+```
+
+事件类型为 `whitelisted_process_memory_risk`。
 
 ## 关键配置
 

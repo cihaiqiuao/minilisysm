@@ -10,6 +10,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <memory>
 #include <string>
 #include <thread>
@@ -78,13 +79,18 @@ class Monitor {
     std::atomic<uint64_t> self_status_failures_{0};
     std::atomic<uint64_t> sched_delay_failures_{0};
     std::atomic<uint64_t> io_delay_failures_{0};
-    std::array<std::atomic<uint64_t>, 11> event_type_counts_{};
+    std::array<std::atomic<uint64_t>, 12> event_type_counts_{};
     std::array<std::atomic<uint64_t>, 4> event_level_counts_{};
     struct ProcessCpuBaseline {
         uint64_t ticks{0};
         std::chrono::steady_clock::time_point sampled_at{};
     };
     std::unordered_map<int, ProcessCpuBaseline> process_cpu_baselines_;
+    struct ProcessMemorySample {
+        std::chrono::steady_clock::time_point sampled_at{};
+        uint64_t rss_bytes{0};
+    };
+    std::unordered_map<int, std::deque<ProcessMemorySample>> process_memory_history_;
     mutable MetricRegistry metrics_;
     uint64_t last_meminfo_failure_event_ms_{0};
     uint64_t last_cpu_usage_failure_event_ms_{0};

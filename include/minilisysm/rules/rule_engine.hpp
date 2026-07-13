@@ -29,6 +29,7 @@ enum class RuleId : uint32_t {
     CpuUsage = 2003,
     SchedDelay = 3001,
     IoDelay = 4001,
+    WhitelistedProcessMemory = 5001,
 };
 
 enum class ThresholdDirection : uint8_t {
@@ -86,6 +87,8 @@ class RuleEngine {
     std::optional<InternalEvent> evaluate_queue(const QueueSnapshot& snapshot);
     std::optional<InternalEvent> evaluate_sched_delay(const SchedDelaySample& sample);
     std::optional<InternalEvent> evaluate_io_delay(const IoDelaySample& sample);
+    std::optional<InternalEvent> evaluate_process_memory_growth(const std::string& name, int32_t pid,
+                                                                 double growth_mb);
 
   private:
     InternalEvent make_memory_event(EventLevel level, EventStatus status, double value_mb) const;
@@ -98,6 +101,8 @@ class RuleEngine {
                                          double wait_sum_us, const RuleContext& context) const;
     InternalEvent make_io_delay_event(const IoDelaySample& sample, EventLevel level, EventStatus status,
                                       double await_ms, const RuleContext& context) const;
+    InternalEvent make_process_memory_event(const std::string& name, int32_t pid, EventLevel level,
+                                            EventStatus status, double growth_mb, const RuleContext& context) const;
     std::optional<EventLevel> evaluate_threshold(RuleContext& context, const ThresholdRuleDefinition& definition,
                                                  double value, bool external_warning_trigger,
                                                  bool external_critical_trigger, bool external_recovery_blocked);
@@ -113,6 +118,7 @@ class RuleEngine {
     uint64_t last_queue_dispatcher_failure_count_{0};
     std::unordered_map<uint64_t, RuleContext> sched_delay_;
     std::unordered_map<std::string, RuleContext> io_delay_;
+    std::unordered_map<std::string, RuleContext> process_memory_;
 };
 
 } // namespace lisysm

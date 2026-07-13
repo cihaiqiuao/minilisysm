@@ -226,6 +226,12 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path) {
     assign_int(ini, "sched_delay_rule", "recovery_windows", config.sched_recovery_windows);
     assign_int(ini, "sched_delay_rule", "max_targets", config.sched_max_targets);
 
+    assign_bool(ini, "process_memory_rule", "enable", config.process_memory_enable);
+    assign_int(ini, "process_memory_rule", "growth_warning_mb", config.process_memory_growth_warning_mb);
+    assign_int(ini, "process_memory_rule", "growth_critical_mb", config.process_memory_growth_critical_mb);
+    assign_int(ini, "process_memory_rule", "growth_recovery_mb", config.process_memory_growth_recovery_mb);
+    assign_int(ini, "process_memory_rule", "growth_window_sec", config.process_memory_growth_window_sec);
+
     assign_bool(ini, "io_delay_rule", "enable", config.io_delay_enable);
     assign_csv(ini, "io_delay_rule", "device_whitelist", config.io_device_whitelist);
     assign_double(ini, "io_delay_rule", "await_warning_ms", config.io_await_warning_ms);
@@ -378,6 +384,13 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
     if (config.sched_max_targets == 0) {
         config.sched_max_targets = 1;
     }
+    if (config.process_memory_growth_critical_mb < config.process_memory_growth_warning_mb) {
+        config.process_memory_growth_critical_mb = config.process_memory_growth_warning_mb;
+    }
+    if (config.process_memory_growth_recovery_mb > config.process_memory_growth_warning_mb) {
+        config.process_memory_growth_recovery_mb = config.process_memory_growth_warning_mb;
+    }
+    if (config.process_memory_growth_window_sec == 0) config.process_memory_growth_window_sec = 1;
     if (config.io_await_critical_ms < config.io_await_warning_ms) {
         config.io_await_critical_ms = config.io_await_warning_ms;
     }

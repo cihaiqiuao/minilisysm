@@ -62,6 +62,8 @@ const char* event_type_cn(EventType type) {
         return "I/O 延迟风险";
     case EventType::CpuUsageRisk:
         return "CPU 占用风险";
+    case EventType::WhitelistedProcessMemoryRisk:
+        return "白名单进程内存增长风险";
     }
     return "未知事件";
 }

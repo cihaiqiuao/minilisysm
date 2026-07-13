@@ -91,7 +91,7 @@ std::optional<WhitelistedProcessSample> read_whitelisted_process_sample(const st
 
 size_t event_type_index(EventType type) {
     const size_t index = static_cast<size_t>(type);
-    return index < 11 ? index : 0;
+    return index < 12 ? index : 0;
 }
 
 size_t event_level_index(EventLevel level) {
@@ -524,6 +524,21 @@ void Monitor::record_whitelisted_process_metrics() {
         }
         process_cpu_baselines_[sample->pid] = ProcessCpuBaseline{sample->cpu_ticks, now};
         metrics_.set_gauge("minilisysm_whitelisted_process_cpu_usage_percent", cpu_percent, labels);
+        if (config_.process_memory_enable) {
+            auto& history = process_memory_history_[sample->pid];
+            history.push_back(ProcessMemorySample{now, sample->rss_bytes});
+            const auto window = std::chrono::seconds(config_.process_memory_growth_window_sec);
+            while (history.size() > 1 && now - history[1].sampled_at >= window) {
+                history.pop_front();
+            }
+            if (history.size() > 1 && now - history.front().sampled_at >= window) {
+                const double growth_mb =
+                    (static_cast<double>(sample->rss_bytes) - static_cast<double>(history.front().rss_bytes)) / 1048576.0;
+                if (auto event = fast_rules_->evaluate_process_memory_growth(sample->name, sample->pid, growth_mb)) {
+                    publish_event(fast_queue_, *event);
+                }
+            }
+        }
     }
 }
 

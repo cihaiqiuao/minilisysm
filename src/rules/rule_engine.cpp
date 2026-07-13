@@ -107,6 +107,32 @@ std::optional<InternalEvent> RuleEngine::evaluate_cpu_usage(const CpuUsageSample
     return std::nullopt;
 }
 
+std::optional<InternalEvent> RuleEngine::evaluate_process_memory_growth(const std::string& name, int32_t pid,
+                                                                        double growth_mb) {
+    if (!config_.process_memory_enable || name.empty() || pid <= 0) {
+        return std::nullopt;
+    }
+    RuleContext& context = process_memory_[name + ":" + std::to_string(pid)];
+    const ThresholdRuleDefinition rule{
+        RuleId::WhitelistedProcessMemory,
+        EventType::WhitelistedProcessMemoryRisk,
+        ThresholdDirection::GreaterOrEqual,
+        static_cast<double>(config_.process_memory_growth_warning_mb),
+        static_cast<double>(config_.process_memory_growth_critical_mb),
+        static_cast<double>(config_.process_memory_growth_recovery_mb),
+        1,
+        1,
+        1,
+        config_.process_memory_growth_window_sec,
+    };
+    if (auto level = evaluate_threshold(context, rule, growth_mb, false, false, false)) {
+        return make_process_memory_event(name, pid, *level,
+                                         *level == EventLevel::Recovery ? EventStatus::Resolved : EventStatus::Active,
+                                         growth_mb, context);
+    }
+    return std::nullopt;
+}
+
 std::optional<InternalEvent> RuleEngine::evaluate_queue(const QueueSnapshot& snapshot) {
     if (queue_.state == RuleState::Disabled || (snapshot.capacity == 0 && snapshot.sink_capacity == 0)) {
         return std::nullopt;
@@ -334,6 +360,30 @@ InternalEvent RuleEngine::make_cpu_usage_event(EventLevel level, EventStatus sta
     event.evidence[2].value = static_cast<double>(sample.delta_total_jiffies);
     set_evidence_key(event.evidence[3], "delta_idle_jiffies");
     event.evidence[3].value = static_cast<double>(sample.delta_idle_jiffies);
+    return event;
+}
+
+InternalEvent RuleEngine::make_process_memory_event(const std::string& name, int32_t pid, EventLevel level,
+                                                     EventStatus status, double growth_mb,
+                                                     const RuleContext& context) const {
+    InternalEvent event;
+    event.rule_id = static_cast<uint32_t>(RuleId::WhitelistedProcessMemory);
+    event.event_type = EventType::WhitelistedProcessMemoryRisk;
+    event.level = level;
+    event.status = status;
+    event.pid = pid;
+    set_event_target(event, name);
+    event.value = growth_mb;
+    event.warning_threshold = static_cast<double>(config_.process_memory_growth_warning_mb);
+    event.critical_threshold = static_cast<double>(config_.process_memory_growth_critical_mb);
+    event.window_sec = config_.process_memory_growth_window_sec;
+    event.continuous_hit_count = context.hit_count;
+    event.hit_count = context.total_hit_count;
+    event.evidence_count = 2;
+    set_evidence_key(event.evidence[0], "recovery_growth_mb");
+    event.evidence[0].value = static_cast<double>(config_.process_memory_growth_recovery_mb);
+    set_evidence_key(event.evidence[1], "max_growth_mb");
+    event.evidence[1].value = context.max_value;
     return event;
 }
 

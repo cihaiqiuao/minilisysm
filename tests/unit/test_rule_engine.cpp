@@ -202,5 +202,25 @@ int main() {
     auto io_recovery = rules.evaluate_io_delay(io_sample);
     CHECK(io_recovery.has_value());
     CHECK(io_recovery->level == lisysm::EventLevel::Recovery);
+
+    lisysm::MonitorConfig process_memory_config = config;
+    process_memory_config.process_memory_growth_warning_mb = 100;
+    process_memory_config.process_memory_growth_critical_mb = 200;
+    process_memory_config.process_memory_growth_recovery_mb = 20;
+    process_memory_config.process_memory_growth_window_sec = 600;
+    lisysm::RuleEngine process_memory_rules(process_memory_config);
+    auto process_memory_warning =
+        process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 120.0);
+    CHECK(process_memory_warning.has_value());
+    CHECK(process_memory_warning->event_type == lisysm::EventType::WhitelistedProcessMemoryRisk);
+    CHECK(process_memory_warning->level == lisysm::EventLevel::Warning);
+    auto process_memory_critical =
+        process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 220.0);
+    CHECK(process_memory_critical.has_value());
+    CHECK(process_memory_critical->level == lisysm::EventLevel::Critical);
+    auto process_memory_recovery =
+        process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 10.0);
+    CHECK(process_memory_recovery.has_value());
+    CHECK(process_memory_recovery->level == lisysm::EventLevel::Recovery);
     return 0;
 }

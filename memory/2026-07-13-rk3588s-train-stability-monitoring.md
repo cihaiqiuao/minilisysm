@@ -47,3 +47,10 @@ systemd 自动重启监控；不能将其 `/proc` 调度规则当作 train_stabi
 
 `qalog` 的 `Whitelisted processes` 区块显示上述数据。CPU 为该进程在一个
 采样周期内占用的单核百分比，因此多线程进程可以超过 100%。
+
+## 白名单进程 RSS 增长告警
+
+不对未启动的白名单进程报警。仅当进程实际存在且其 RSS 在滚动 600 秒窗口内
+净增长超过阈值时产生事件：Warning 为 100 MiB，Critical 为 200 MiB，增长
+回落至 20 MiB 以下后产生恢复事件。事件类型为
+`whitelisted_process_memory_risk`。

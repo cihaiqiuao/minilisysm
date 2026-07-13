@@ -47,3 +47,16 @@ systemd 自动重启监控；不能将其 `/proc` 调度规则当作 train_stabi
 
 `qalog` 的 `Whitelisted processes` 区块显示上述数据。CPU 为该进程在一个
 采样周期内占用的单核百分比，因此多线程进程可以超过 100%。
+
+## 白名单进程缺失告警
+
+新增 `process_health_rule`。对每个 `process_whitelist` 名称每秒判断一次是否有
+匹配 `/proc/<pid>/comm` 的进程：
+
+- 连续缺失 `missing_warning_windows`（默认 3）次，写出
+  `whitelisted_process_risk` Warning 事件。
+- 连续缺失 `missing_critical_windows`（默认 10）次，升级为 Critical。
+- 进程连续存在 `recovery_windows`（默认 2）次，写出 Resolved/Recovery 事件。
+
+该告警只处理进程消失；RSS 持续增长和进程 CPU 超阈值仍以当前 Prometheus
+指标供外部告警系统判断，避免在未明确阈值前产生误报。

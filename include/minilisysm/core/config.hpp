@@ -87,6 +87,11 @@ struct MonitorConfig {
     uint32_t sched_recovery_windows{3};
     uint32_t sched_max_targets{32};
 
+    bool process_health_enable{true};
+    uint32_t process_missing_warning_windows{3};
+    uint32_t process_missing_critical_windows{10};
+    uint32_t process_recovery_windows{2};
+
     bool io_delay_enable{true};
     std::vector<std::string> io_device_whitelist{};
     double io_await_warning_ms{50.0};

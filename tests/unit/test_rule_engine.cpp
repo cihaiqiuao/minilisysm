@@ -202,5 +202,23 @@ int main() {
     auto io_recovery = rules.evaluate_io_delay(io_sample);
     CHECK(io_recovery.has_value());
     CHECK(io_recovery->level == lisysm::EventLevel::Recovery);
+
+    lisysm::MonitorConfig process_config = config;
+    process_config.process_missing_warning_windows = 2;
+    process_config.process_missing_critical_windows = 3;
+    process_config.process_recovery_windows = 2;
+    lisysm::RuleEngine process_rules(process_config);
+    CHECK(!process_rules.evaluate_process_presence("train_stability", false).has_value());
+    auto process_warning = process_rules.evaluate_process_presence("train_stability", false);
+    CHECK(process_warning.has_value());
+    CHECK(process_warning->event_type == lisysm::EventType::WhitelistedProcessRisk);
+    CHECK(process_warning->level == lisysm::EventLevel::Warning);
+    auto process_critical = process_rules.evaluate_process_presence("train_stability", false);
+    CHECK(process_critical.has_value());
+    CHECK(process_critical->level == lisysm::EventLevel::Critical);
+    CHECK(!process_rules.evaluate_process_presence("train_stability", true).has_value());
+    auto process_recovery = process_rules.evaluate_process_presence("train_stability", true);
+    CHECK(process_recovery.has_value());
+    CHECK(process_recovery->level == lisysm::EventLevel::Recovery);
     return 0;
 }

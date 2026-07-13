@@ -33,6 +33,7 @@ enum class EventType : uint32_t {
     SchedDelayRisk = 8,
     IoDelayRisk = 9,
     CpuUsageRisk = 10,
+    WhitelistedProcessRisk = 11,
 };
 
 struct EvidenceItem {

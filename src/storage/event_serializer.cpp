@@ -113,6 +113,8 @@ const char* to_string(EventType type) {
         return "io_delay_risk";
     case EventType::CpuUsageRisk:
         return "cpu_usage_risk";
+    case EventType::WhitelistedProcessRisk:
+        return "whitelisted_process_risk";
     }
     return "unknown";
 }

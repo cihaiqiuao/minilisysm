@@ -107,6 +107,39 @@ std::optional<InternalEvent> RuleEngine::evaluate_cpu_usage(const CpuUsageSample
     return std::nullopt;
 }
 
+std::optional<InternalEvent> RuleEngine::evaluate_process_presence(const std::string& name, bool present) {
+    if (!config_.process_health_enable || name.empty()) {
+        return std::nullopt;
+    }
+    RuleContext& context = process_health_[name];
+    if (!present) {
+        ++context.hit_count;
+        ++context.total_hit_count;
+        context.recovery_count = 0;
+        context.max_value = 1.0;
+        if (context.state != RuleState::Critical && context.hit_count >= config_.process_missing_critical_windows) {
+            context.state = RuleState::Critical;
+            return make_process_event(name, EventLevel::Critical, EventStatus::Active, context);
+        }
+        if (context.state == RuleState::Normal && context.hit_count >= config_.process_missing_warning_windows) {
+            context.state = RuleState::Warning;
+            return make_process_event(name, EventLevel::Warning, EventStatus::Active, context);
+        }
+        return std::nullopt;
+    }
+    context.hit_count = 0;
+    if (context.state != RuleState::Normal) {
+        ++context.recovery_count;
+        if (context.recovery_count >= config_.process_recovery_windows) {
+            context.state = RuleState::Normal;
+            return make_process_event(name, EventLevel::Recovery, EventStatus::Resolved, context);
+        }
+    } else {
+        context.recovery_count = 0;
+    }
+    return std::nullopt;
+}
+
 std::optional<InternalEvent> RuleEngine::evaluate_queue(const QueueSnapshot& snapshot) {
     if (queue_.state == RuleState::Disabled || (snapshot.capacity == 0 && snapshot.sink_capacity == 0)) {
         return std::nullopt;
@@ -334,6 +367,28 @@ InternalEvent RuleEngine::make_cpu_usage_event(EventLevel level, EventStatus sta
     event.evidence[2].value = static_cast<double>(sample.delta_total_jiffies);
     set_evidence_key(event.evidence[3], "delta_idle_jiffies");
     event.evidence[3].value = static_cast<double>(sample.delta_idle_jiffies);
+    return event;
+}
+
+InternalEvent RuleEngine::make_process_event(const std::string& name, EventLevel level, EventStatus status,
+                                             const RuleContext& context) const {
+    InternalEvent event;
+    event.rule_id = static_cast<uint32_t>(RuleId::WhitelistedProcess);
+    event.event_type = EventType::WhitelistedProcessRisk;
+    event.level = level;
+    event.status = status;
+    set_event_target(event, name);
+    event.value = status == EventStatus::Resolved ? 0.0 : 1.0;
+    event.warning_threshold = 1.0;
+    event.critical_threshold = 1.0;
+    event.window_sec = config_.fast_collect_interval_ms * config_.process_missing_warning_windows / 1000;
+    event.continuous_hit_count = context.hit_count;
+    event.hit_count = context.total_hit_count;
+    event.evidence_count = 2;
+    set_evidence_key(event.evidence[0], "missing_warning_windows");
+    event.evidence[0].value = static_cast<double>(config_.process_missing_warning_windows);
+    set_evidence_key(event.evidence[1], "missing_critical_windows");
+    event.evidence[1].value = static_cast<double>(config_.process_missing_critical_windows);
     return event;
 }
 

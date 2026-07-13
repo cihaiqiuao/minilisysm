@@ -78,7 +78,7 @@ class Monitor {
     std::atomic<uint64_t> self_status_failures_{0};
     std::atomic<uint64_t> sched_delay_failures_{0};
     std::atomic<uint64_t> io_delay_failures_{0};
-    std::array<std::atomic<uint64_t>, 11> event_type_counts_{};
+    std::array<std::atomic<uint64_t>, 12> event_type_counts_{};
     std::array<std::atomic<uint64_t>, 4> event_level_counts_{};
     struct ProcessCpuBaseline {
         uint64_t ticks{0};

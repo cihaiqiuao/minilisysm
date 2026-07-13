@@ -107,16 +107,6 @@ minilisysm_whitelisted_process_threads{process,pid}
 
 这些指标用于展示和外部告警系统接入。当前版本不会因为业务进程 RSS 增长自动生成内存泄漏告警。
 
-白名单进程连续缺失时会生成 `whitelisted_process_risk` 事件；默认连续 3 个采集周期告警、连续 10 个周期升级为 Critical，恢复后连续 2 个周期写入恢复事件。可在 `[process_health_rule]` 调整。
-
-```ini
-[process_health_rule]
-enable=true
-missing_warning_windows=3
-missing_critical_windows=10
-recovery_windows=2
-```
-
 ## 关键配置
 
 配置模板在 [`configs/lisysm_monitor.ini`](configs/lisysm_monitor.ini)。常用项如下：

@@ -20,7 +20,6 @@
 #include <fstream>
 #include <optional>
 #include <sstream>
-#include <unordered_set>
 #include <unistd.h>
 #include <utility>
 
@@ -92,7 +91,7 @@ std::optional<WhitelistedProcessSample> read_whitelisted_process_sample(const st
 
 size_t event_type_index(EventType type) {
     const size_t index = static_cast<size_t>(type);
-    return index < 12 ? index : 0;
+    return index < 11 ? index : 0;
 }
 
 size_t event_level_index(EventLevel level) {
@@ -502,7 +501,6 @@ void Monitor::record_whitelisted_process_metrics() {
     }
     const long clock_ticks = ::sysconf(_SC_CLK_TCK);
     const auto now = std::chrono::steady_clock::now();
-    std::unordered_set<std::string> present_names;
     std::error_code ec;
     for (const auto& proc : std::filesystem::directory_iterator("/proc", ec)) {
         if (!proc.is_directory()) continue;
@@ -513,7 +511,6 @@ void Monitor::record_whitelisted_process_metrics() {
         }
         const std::vector<MetricLabel> labels{{"process", sample->name}, {"pid", std::to_string(sample->pid)}};
         metrics_.set_gauge("minilisysm_whitelisted_process_up", 1.0, {{"process", sample->name}});
-        present_names.insert(sample->name);
         metrics_.set_gauge("minilisysm_whitelisted_process_rss_bytes", static_cast<double>(sample->rss_bytes), labels);
         metrics_.set_gauge("minilisysm_whitelisted_process_threads", static_cast<double>(sample->threads), labels);
         double cpu_percent = 0.0;
@@ -527,11 +524,6 @@ void Monitor::record_whitelisted_process_metrics() {
         }
         process_cpu_baselines_[sample->pid] = ProcessCpuBaseline{sample->cpu_ticks, now};
         metrics_.set_gauge("minilisysm_whitelisted_process_cpu_usage_percent", cpu_percent, labels);
-    }
-    for (const std::string& name : config_.sched_process_whitelist) {
-        if (auto event = fast_rules_->evaluate_process_presence(name, present_names.count(name) != 0)) {
-            publish_event(fast_queue_, *event);
-        }
     }
 }
 

@@ -9,9 +9,11 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace lisysm {
@@ -52,6 +54,7 @@ class Monitor {
     void record_self_status_metrics(const SelfStatusSample& sample);
     void record_sched_delay_metrics(const SchedDelaySample& sample);
     void record_io_delay_metrics(const IoDelaySample& sample);
+    void record_whitelisted_process_metrics();
 
     MonitorConfig config_;
     SpscRingBuffer<InternalEvent> fast_queue_;
@@ -77,6 +80,11 @@ class Monitor {
     std::atomic<uint64_t> io_delay_failures_{0};
     std::array<std::atomic<uint64_t>, 11> event_type_counts_{};
     std::array<std::atomic<uint64_t>, 4> event_level_counts_{};
+    struct ProcessCpuBaseline {
+        uint64_t ticks{0};
+        std::chrono::steady_clock::time_point sampled_at{};
+    };
+    std::unordered_map<int, ProcessCpuBaseline> process_cpu_baselines_;
     mutable MetricRegistry metrics_;
     uint64_t last_meminfo_failure_event_ms_{0};
     uint64_t last_cpu_usage_failure_event_ms_{0};

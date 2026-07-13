@@ -16,7 +16,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <optional>
 #include <sstream>
+#include <unistd.h>
 #include <utility>
 
 namespace lisysm {
@@ -28,6 +32,62 @@ constexpr uint32_t kSchedDelayCollectorId = 3;
 constexpr uint32_t kIoDelayCollectorId = 4;
 constexpr uint32_t kCpuUsageCollectorId = 5;
 constexpr uint64_t kCollectorFailureEventIntervalMs = 60000;
+
+struct WhitelistedProcessSample {
+    int pid{0};
+    std::string name;
+    uint64_t cpu_ticks{0};
+    uint64_t rss_bytes{0};
+    uint64_t threads{0};
+};
+
+std::optional<WhitelistedProcessSample> read_whitelisted_process_sample(const std::filesystem::path& proc) {
+    std::ifstream comm_file(proc / "comm");
+    std::string name;
+    std::getline(comm_file, name);
+    if (name.empty()) {
+        return std::nullopt;
+    }
+    std::ifstream stat_file(proc / "stat");
+    std::string stat;
+    std::getline(stat_file, stat);
+    const size_t close_paren = stat.rfind(") ");
+    if (close_paren == std::string::npos) {
+        return std::nullopt;
+    }
+    std::istringstream fields(stat.substr(close_paren + 2));
+    std::string field;
+    uint64_t utime = 0;
+    uint64_t stime = 0;
+    try {
+        for (int index = 0; fields >> field; ++index) {
+            if (index == 11) utime = std::stoull(field);
+            if (index == 12) stime = std::stoull(field);
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    std::error_code ec;
+    uint64_t threads = 0;
+    for (const auto& task : std::filesystem::directory_iterator(proc / "task", ec)) {
+        if (task.is_directory()) ++threads;
+    }
+    std::ifstream status_file(proc / "status");
+    uint64_t rss_bytes = 0;
+    std::string line;
+    while (std::getline(status_file, line)) {
+        if (line.rfind("VmRSS:", 0) == 0) {
+            std::istringstream value(line.substr(6));
+            uint64_t rss_kb = 0;
+            value >> rss_kb;
+            rss_bytes = rss_kb * 1024;
+            break;
+        }
+    }
+    int pid = 0;
+    try { pid = std::stoi(proc.filename().string()); } catch (...) { return std::nullopt; }
+    return WhitelistedProcessSample{pid, std::move(name), utime + stime, rss_bytes, threads};
+}
 
 size_t event_type_index(EventType type) {
     const size_t index = static_cast<size_t>(type);
@@ -169,6 +229,7 @@ void Monitor::fast_collect_loop() {
             publish_collector_failure(fast_queue_, kSelfStatusCollectorId, self_status_failures_,
                                       last_self_status_failure_event_ms_);
         }
+        record_whitelisted_process_metrics();
         if (auto event = fast_rules_->evaluate_queue(queue_snapshot())) {
             publish_event(fast_queue_, *event);
         }
@@ -429,6 +490,41 @@ void Monitor::record_self_status_metrics(const SelfStatusSample& sample) {
         return;
     }
     metrics_.set_gauge("minilisysm_monitor_rss_bytes", static_cast<double>(sample.vm_rss_kb) * 1024.0);
+}
+
+void Monitor::record_whitelisted_process_metrics() {
+    if (!config_.metrics_scrape_collectors || config_.sched_process_whitelist.empty()) {
+        return;
+    }
+    for (const std::string& name : config_.sched_process_whitelist) {
+        metrics_.set_gauge("minilisysm_whitelisted_process_up", 0.0, {{"process", name}});
+    }
+    const long clock_ticks = ::sysconf(_SC_CLK_TCK);
+    const auto now = std::chrono::steady_clock::now();
+    std::error_code ec;
+    for (const auto& proc : std::filesystem::directory_iterator("/proc", ec)) {
+        if (!proc.is_directory()) continue;
+        const auto sample = read_whitelisted_process_sample(proc.path());
+        if (!sample || std::find(config_.sched_process_whitelist.begin(), config_.sched_process_whitelist.end(),
+                                 sample->name) == config_.sched_process_whitelist.end()) {
+            continue;
+        }
+        const std::vector<MetricLabel> labels{{"process", sample->name}, {"pid", std::to_string(sample->pid)}};
+        metrics_.set_gauge("minilisysm_whitelisted_process_up", 1.0, {{"process", sample->name}});
+        metrics_.set_gauge("minilisysm_whitelisted_process_rss_bytes", static_cast<double>(sample->rss_bytes), labels);
+        metrics_.set_gauge("minilisysm_whitelisted_process_threads", static_cast<double>(sample->threads), labels);
+        double cpu_percent = 0.0;
+        const auto previous = process_cpu_baselines_.find(sample->pid);
+        if (previous != process_cpu_baselines_.end() && clock_ticks > 0) {
+            const double elapsed = std::chrono::duration<double>(now - previous->second.sampled_at).count();
+            if (elapsed > 0.0 && sample->cpu_ticks >= previous->second.ticks) {
+                cpu_percent = static_cast<double>(sample->cpu_ticks - previous->second.ticks) * 100.0 /
+                              (static_cast<double>(clock_ticks) * elapsed);
+            }
+        }
+        process_cpu_baselines_[sample->pid] = ProcessCpuBaseline{sample->cpu_ticks, now};
+        metrics_.set_gauge("minilisysm_whitelisted_process_cpu_usage_percent", cpu_percent, labels);
+    }
 }
 
 void Monitor::record_sched_delay_metrics(const SchedDelaySample& sample) {

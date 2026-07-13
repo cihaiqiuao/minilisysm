@@ -403,6 +403,19 @@ print_status() {
         else if (name == "minilisysm_system_memory_total_bytes") mem_total = value
         else if (name == "minilisysm_system_memory_available_bytes") mem_available = value
         else if (name == "minilisysm_monitor_rss_bytes") monitor_rss = value
+        else if (name == "minilisysm_whitelisted_process_up") {
+            process = label(token, "process")
+            process_up[process] = value
+            if (!(process in seen_process)) { seen_process[process] = 1; process_order[++process_count] = process }
+        } else if (name == "minilisysm_whitelisted_process_cpu_usage_percent") {
+            process = label(token, "process"); pid = label(token, "pid"); key = process SUBSEP pid
+            process_cpu[key] = value; process_pid[key] = pid
+            if (!(key in seen_process_detail)) { seen_process_detail[key] = 1; process_detail_order[++process_detail_count] = key }
+        } else if (name == "minilisysm_whitelisted_process_rss_bytes") {
+            process = label(token, "process"); pid = label(token, "pid"); key = process SUBSEP pid; process_rss[key] = value
+        } else if (name == "minilisysm_whitelisted_process_threads") {
+            process = label(token, "process"); pid = label(token, "pid"); key = process SUBSEP pid; process_threads[key] = value
+        }
         else if (name == "minilisysm_cpu_usage_percent") {
             cpu = label(token, "cpu")
             remember_cpu(cpu)
@@ -504,6 +517,21 @@ print_status() {
         }
         if (monitor_rss > 0) {
             printf("  monitor rss=%s%8.1f MiB%s\n", green, mib(monitor_rss), reset)
+        }
+
+        section("Whitelisted processes")
+        if (process_count == 0) {
+            print "  " yellow "no configured process metrics yet" reset
+        }
+        for (i = 1; i <= process_count; ++i) {
+            process = process_order[i]
+            printf("  %-20s up=%s%s%s\n", process, process_up[process] == 1 ? green : red,
+                   process_up[process] == 1 ? "yes" : "no", reset)
+        }
+        for (i = 1; i <= process_detail_count; ++i) {
+            key = process_detail_order[i]
+            printf("    pid=%-7s cpu=%6.2f%% rss=%8.1f MiB threads=%3.0f\n", process_pid[key],
+                   process_cpu[key], mib(process_rss[key]), process_threads[key])
         }
 
         section("Queues")

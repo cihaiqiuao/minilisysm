@@ -2,6 +2,7 @@
 #include "minilisysm/core/config.hpp"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -20,6 +21,16 @@ void write_file(const std::string& path, const std::string& content) {
     std::ofstream os(path);
     os << content;
 }
+
+namespace {
+
+uint64_t test_now_ms = 0;
+
+uint64_t test_clock() {
+    return test_now_ms;
+}
+
+}  // namespace
 
 int main() {
     const std::string test_file = "/tmp/mock_proc_stat";
@@ -86,6 +97,25 @@ int main() {
     lisysm::CpuUsageCollector missing_collector(config, "/tmp/non_existent_mock_proc_stat");
     CHECK(missing_collector.collect().empty());
     CHECK(missing_collector.last_failure_count() > 0);
+
+    lisysm::MonitorConfig ttl_config = config;
+    ttl_config.state_ttl_sec = 1;
+    test_now_ms = 1'000;
+    write_file(test_file, "cpu  100 0 50 850 0 0 0 0 0 0\n"
+                          "cpu0 50 0 25 425 0 0 0 0 0 0\n");
+    lisysm::CpuUsageCollector ttl_collector(ttl_config, test_file, test_clock);
+    CHECK(ttl_collector.collect().empty());
+
+    test_now_ms = 2'500;
+    write_file(test_file, "cpu  130 0 70 900 0 0 0 0 0 0\n");
+    CHECK(ttl_collector.collect().size() == 1);
+
+    test_now_ms = 2'600;
+    write_file(test_file, "cpu  160 0 90 950 0 0 0 0 0 0\n"
+                          "cpu0 80 0 45 475 0 0 0 0 0 0\n");
+    const std::vector<lisysm::CpuUsageSample> ttl_samples = ttl_collector.collect();
+    CHECK(ttl_samples.size() == 1);
+    CHECK(ttl_samples[0].cpu == "total");
 
     std::remove(test_file.c_str());
     return EXIT_SUCCESS;

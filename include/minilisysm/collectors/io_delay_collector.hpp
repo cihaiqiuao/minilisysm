@@ -1,6 +1,7 @@
 #pragma once
 
 #include "minilisysm/core/config.hpp"
+#include "minilisysm/core/time.hpp"
 
 #include <cstdint>
 #include <string>
@@ -20,7 +21,10 @@ struct IoDelaySample {
 
 class IoDelayCollector {
   public:
-    explicit IoDelayCollector(const MonitorConfig& config, std::string diskstats_path = "/proc/diskstats");
+    using Clock = uint64_t (*)();
+
+    explicit IoDelayCollector(const MonitorConfig& config, std::string diskstats_path = "/proc/diskstats",
+                              Clock clock = monotonic_ms);
     std::vector<IoDelaySample> collect();
     uint64_t last_failure_count() const {
         return last_failure_count_;
@@ -40,10 +44,13 @@ class IoDelayCollector {
     bool should_scan_device(const std::string& device) const;
     bool contains_name(const std::vector<std::string>& names, const std::string& value) const;
     std::unordered_map<std::string, DiskStats> read_diskstats() const;
+    void prune_baselines(uint64_t now_ms);
 
     const MonitorConfig& config_;
     std::string diskstats_path_;
     std::unordered_map<std::string, DiskStats> baselines_;
+    std::unordered_map<std::string, uint64_t> baseline_last_seen_ms_;
+    Clock clock_;
     uint64_t last_failure_count_{0};
 };
 

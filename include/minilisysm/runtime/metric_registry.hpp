@@ -21,9 +21,15 @@ struct MetricLabel {
     std::string value;
 };
 
+struct MetricSample {
+    double value{0.0};
+    std::vector<MetricLabel> labels;
+};
+
 class MetricRegistry {
   public:
     void set_gauge(const std::string& name, double value, std::vector<MetricLabel> labels = {});
+    void set_gauge_family(const std::string& name, std::vector<MetricSample> samples);
     void inc_counter(const std::string& name, double delta = 1.0, std::vector<MetricLabel> labels = {});
     void set_counter(const std::string& name, double value, std::vector<MetricLabel> labels = {});
     std::string render_prometheus() const;

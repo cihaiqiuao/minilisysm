@@ -18,11 +18,12 @@ struct MonitorConfig {
     uint32_t dispatcher_idle_sleep_ms{2};
     uint32_t sink_idle_sleep_ms{5};
     bool metrics_enable{true};
-    std::string metrics_bind_host{"127.0.0.1"};
+    std::string metrics_bind_host{"0.0.0.0"};
     uint16_t metrics_port{9108};
     bool metrics_scrape_runtime{true};
     bool metrics_scrape_collectors{true};
     bool metrics_scrape_rule_state{true};
+    std::vector<std::string> metrics_allowed_clients{};
 
     bool agent_log_enable{true};
     std::string agent_log_level{"info"};
@@ -53,6 +54,7 @@ struct MonitorConfig {
     uint32_t continuous_critical_windows{2};
     uint32_t recovery_windows{3};
     uint32_t cooldown_sec{60};
+    uint32_t state_ttl_sec{3600};
 
     bool self_protection_enable{true};
     uint32_t queue_warning_percent{70};

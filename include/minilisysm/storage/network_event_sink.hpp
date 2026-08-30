@@ -47,10 +47,10 @@ class NetworkEventSink : public EventSink {
         std::string json_line;
     };
 
-    void append_wal(const std::string& json_line);
+    bool append_wal(const std::string& json_line);
     void load_wal();
-    void rewrite_wal_locked();
-    void ack_pending(size_t acked_count);
+    bool rewrite_wal_locked(size_t acked_count);
+    bool ack_pending(size_t acked_count);
     bool flush_pending();
     bool post_batch(const std::vector<std::string>& batch) const;
     bool connect_with_timeout(int fd, const addrinfo* target) const;
@@ -72,6 +72,7 @@ class NetworkEventSink : public EventSink {
     std::atomic<bool> running_{false};
     std::thread worker_;
     std::atomic<uint64_t> accepted_events_{0};
+    std::atomic<uint64_t> write_errors_{0};
     std::atomic<uint64_t> sent_events_{0};
     std::atomic<uint64_t> send_errors_{0};
     std::atomic<uint64_t> retry_count_{0};

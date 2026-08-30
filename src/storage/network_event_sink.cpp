@@ -23,6 +23,45 @@
 
 namespace lisysm {
 namespace fs = std::filesystem;
+namespace {
+
+bool sync_file(const fs::path& path) {
+#if defined(__linux__)
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+    const bool synced = ::fdatasync(fd) == 0;
+    ::close(fd);
+    return synced;
+#else
+    (void)path;
+    return false;
+#endif
+}
+
+bool sync_directory(const fs::path& path) {
+#if defined(__linux__)
+    const int fd = ::open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+    const bool synced = ::fsync(fd) == 0;
+    ::close(fd);
+    return synced;
+#else
+    (void)path;
+    return false;
+#endif
+}
+
+fs::path wal_path_for_index(const fs::path& directory, uint64_t index) {
+    std::ostringstream name;
+    name << "events_" << std::setw(6) << std::setfill('0') << index << ".wal";
+    return directory / name.str();
+}
+
+} // namespace
 
 NetworkEventSink::NetworkEventSink(const MonitorConfig& config)
     : config_(config), serializer_(config), endpoint_(parse_endpoint()) {}
@@ -96,6 +135,7 @@ SinkStats NetworkEventSink::stats() const {
     stats.dropped_events = dropped_events;
     stats.dropped_critical_events = dropped_critical_events;
     stats.reserve_reject_events = reserve_reject_events;
+    stats.write_errors = write_errors_.load();
     stats.sent_events = sent_events_.load();
     stats.send_errors = send_errors_.load();
     stats.retry_count = retry_count_.load();
@@ -173,7 +213,10 @@ void NetworkEventSink::drain_queues_once() {
                 continue;
             }
             serializer_.to_json_line(event, line);
-            append_wal(line);
+            if (!append_wal(line)) {
+                write_errors_.fetch_add(1);
+                continue;
+            }
             {
                 std::lock_guard<std::mutex> lock(pending_mutex_);
                 pending_.push_back(WalRecord{current_wal_path_, line});
@@ -184,7 +227,7 @@ void NetworkEventSink::drain_queues_once() {
     enforce_wal_limit();
 }
 
-void NetworkEventSink::append_wal(const std::string& json_line) {
+bool NetworkEventSink::append_wal(const std::string& json_line) {
     fs::create_directories(config_.network_wal_path);
     if (current_wal_path_.empty()) {
         current_wal_path_ = next_wal_path();
@@ -197,11 +240,19 @@ void NetworkEventSink::append_wal(const std::string& json_line) {
         current_wal_size_ = 0;
     }
     std::ofstream stream(current_wal_path_, std::ios::out | std::ios::app | std::ios::binary);
+    if (!stream) {
+        spdlog::error("failed to open network WAL for append: path={}", current_wal_path_.string());
+        return false;
+    }
     stream << "0\t" << json_line;
+    stream.flush();
+    stream.close();
     if (!stream) {
         spdlog::error("failed to append network WAL: path={}", current_wal_path_.string());
+        return false;
     }
     current_wal_size_ += json_line.size() + 2;
+    return true;
 }
 
 void NetworkEventSink::load_wal() {
@@ -241,47 +292,116 @@ void NetworkEventSink::load_wal() {
                  pending_.size());
 }
 
-void NetworkEventSink::rewrite_wal_locked() {
+bool NetworkEventSink::rewrite_wal_locked(size_t acked_count) {
+    // Keep the old generation and in-memory queue intact until every replacement segment is durably published.
+    acked_count = std::min(acked_count, pending_.size());
+    std::vector<WalRecord> remaining(pending_.begin() + static_cast<std::ptrdiff_t>(acked_count), pending_.end());
+
+    const fs::path wal_directory(config_.network_wal_path);
     std::vector<fs::path> old_segments;
     std::error_code ec;
-    for (const auto& entry : fs::directory_iterator(config_.network_wal_path, ec)) {
+    uint64_t next_index = current_wal_index_;
+    for (const auto& entry : fs::directory_iterator(wal_directory, ec)) {
         if (entry.is_regular_file() && entry.path().extension() == ".wal") {
             old_segments.push_back(entry.path());
+            const std::string stem = entry.path().stem().string();
+            const size_t underscore = stem.find_last_of('_');
+            if (underscore != std::string::npos) {
+                try {
+                    next_index =
+                        std::max<uint64_t>(next_index, std::stoull(stem.substr(underscore + 1)) + 1);
+                } catch (...) {
+                }
+            }
         }
     }
+
+    struct StagedSegment {
+        fs::path temporary_path;
+        fs::path final_path;
+        uint64_t size{0};
+    };
+    std::vector<StagedSegment> staged_segments;
+    const uint64_t segment_bytes = config_.network_wal_segment_mb * 1024ULL * 1024ULL;
+    size_t record_index = 0;
+    do {
+        StagedSegment segment;
+        segment.final_path = wal_path_for_index(wal_directory, next_index++);
+        segment.temporary_path = segment.final_path;
+        segment.temporary_path += ".tmp";
+
+        std::ofstream stream(segment.temporary_path, std::ios::out | std::ios::trunc | std::ios::binary);
+        if (!stream) {
+            spdlog::error("failed to create temporary network WAL segment: path={}",
+                          segment.temporary_path.string());
+            return false;
+        }
+        while (record_index < remaining.size() &&
+               (segment.size == 0 || segment_bytes == 0 || segment.size < segment_bytes)) {
+            stream << "0\t" << remaining[record_index].json_line;
+            if (!stream) {
+                spdlog::error("failed to write temporary network WAL segment: path={}",
+                              segment.temporary_path.string());
+                stream.close();
+                fs::remove(segment.temporary_path, ec);
+                return false;
+            }
+            remaining[record_index].path = segment.final_path;
+            segment.size += remaining[record_index].json_line.size() + 2;
+            ++record_index;
+        }
+        stream.flush();
+        stream.close();
+        if (!stream || !sync_file(segment.temporary_path)) {
+            spdlog::error("failed to durably sync temporary network WAL segment: path={}",
+                          segment.temporary_path.string());
+            fs::remove(segment.temporary_path, ec);
+            return false;
+        }
+        staged_segments.push_back(std::move(segment));
+    } while (record_index < remaining.size());
+
+    for (size_t i = 0; i < staged_segments.size(); ++i) {
+        fs::rename(staged_segments[i].temporary_path, staged_segments[i].final_path, ec);
+        if (ec) {
+            spdlog::error("failed to publish temporary network WAL segment: temporary_path={} final_path={} error={}",
+                          staged_segments[i].temporary_path.string(), staged_segments[i].final_path.string(),
+                          ec.message());
+            for (size_t j = i; j < staged_segments.size(); ++j) {
+                std::error_code remove_error;
+                fs::remove(staged_segments[j].temporary_path, remove_error);
+            }
+            return false;
+        }
+    }
+    if (!sync_directory(wal_directory)) {
+        spdlog::error("failed to durably publish network WAL generation: path={}", wal_directory.string());
+        return false;
+    }
+
+    pending_ = std::move(remaining);
+    current_wal_path_ = staged_segments.back().final_path;
+    current_wal_size_ = staged_segments.back().size;
+    current_wal_index_ = next_index;
+
     for (const fs::path& path : old_segments) {
         fs::remove(path, ec);
         if (ec) {
-            spdlog::warn("failed to remove old network WAL segment: path={} error={}", path.string(), ec.message());
+            spdlog::warn("failed to remove old network WAL segment after publishing replacement: path={} error={}",
+                         path.string(), ec.message());
             ec.clear();
         }
     }
-    current_wal_index_ = 1;
-    current_wal_path_ = next_wal_path();
-    current_wal_size_ = 0;
-    for (WalRecord& record : pending_) {
-        const uint64_t segment_bytes = config_.network_wal_segment_mb * 1024ULL * 1024ULL;
-        if (current_wal_size_ >= segment_bytes) {
-            current_wal_path_ = next_wal_path();
-            current_wal_size_ = 0;
-        }
-        std::ofstream stream(current_wal_path_, std::ios::out | std::ios::app | std::ios::binary);
-        stream << "0\t" << record.json_line;
-        if (!stream) {
-            spdlog::error("failed to rewrite network WAL segment: path={}", current_wal_path_.string());
-        }
-        record.path = current_wal_path_;
-        current_wal_size_ += record.json_line.size() + 2;
+    if (!sync_directory(wal_directory)) {
+        spdlog::warn("failed to sync network WAL directory after old generation cleanup: path={}",
+                     wal_directory.string());
     }
+    return true;
 }
 
-void NetworkEventSink::ack_pending(size_t acked_count) {
+bool NetworkEventSink::ack_pending(size_t acked_count) {
     std::lock_guard<std::mutex> lock(pending_mutex_);
-    if (acked_count > pending_.size()) {
-        acked_count = pending_.size();
-    }
-    pending_.erase(pending_.begin(), pending_.begin() + static_cast<std::ptrdiff_t>(acked_count));
-    rewrite_wal_locked();
+    return rewrite_wal_locked(acked_count);
 }
 
 bool NetworkEventSink::flush_pending() {
@@ -303,7 +423,11 @@ bool NetworkEventSink::flush_pending() {
     }
     sent_events_.fetch_add(batch.size());
     spdlog::debug("network sink sent batch: count={} endpoint={}", batch.size(), config_.network_endpoint);
-    ack_pending(batch.size());
+    if (!ack_pending(batch.size())) {
+        spdlog::warn("network sink retained acknowledged batch because WAL replacement was not durable: count={}",
+                     batch.size());
+        return false;
+    }
     return true;
 }
 
@@ -472,7 +596,9 @@ void NetworkEventSink::enforce_wal_limit() {
     spdlog::warn("network WAL over limit, rewriting pending WAL: wal_bytes={} max_mb={}", wal_bytes(),
                  config_.network_wal_max_mb);
     std::lock_guard<std::mutex> lock(pending_mutex_);
-    rewrite_wal_locked();
+    if (!rewrite_wal_locked(0)) {
+        spdlog::warn("network WAL compaction skipped because replacement generation was not durable");
+    }
 }
 
 } // namespace lisysm

@@ -146,19 +146,22 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
-    lisysm::Monitor monitor(config);
-    if (!monitor.start()) {
-        spdlog::error("monitor disabled or failed to start");
-        return 1;
-    }
-    spdlog::info("monitor started successfully");
+    int exit_code = 0;
+    {
+        lisysm::Monitor monitor(config);
+        if (!monitor.start()) {
+            spdlog::error("monitor disabled or failed to start");
+            exit_code = 1;
+        } else {
+            spdlog::info("monitor started successfully");
 
-    while (!stop_requested().load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+            while (!stop_requested().load()) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+            spdlog::info("stop signal received");
+            monitor.stop();
+        }
     }
-    spdlog::info("stop signal received");
-    monitor.stop();
-    spdlog::info("monitor stopped");
     spdlog::shutdown();
-    return 0;
+    return exit_code;
 }

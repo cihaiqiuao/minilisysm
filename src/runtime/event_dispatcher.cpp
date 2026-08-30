@@ -19,6 +19,10 @@ EventDispatcher::~EventDispatcher() {
 }
 
 bool EventDispatcher::start() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    if (running_.load()) {
+        return true;
+    }
     running_.store(true);
     worker_ = std::thread(&EventDispatcher::run, this);
     spdlog::debug("event dispatcher started: sink_queues={}", sink_queues_.size());
@@ -26,6 +30,7 @@ bool EventDispatcher::start() {
 }
 
 void EventDispatcher::stop() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     const bool was_running = running_.exchange(false);
     if (worker_.joinable()) {
         worker_.join();
@@ -106,10 +111,17 @@ EventDispatcherGroup::~EventDispatcherGroup() {
 }
 
 bool EventDispatcherGroup::start() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    if (running_.load()) {
+        return true;
+    }
+    running_.store(true);
     spdlog::info("event dispatcher group starting: sinks={} dispatchers={}", sinks_.size(), dispatchers_.size());
     for (const std::unique_ptr<EventSink>& sink : sinks_) {
         if (sink && !sink->start()) {
             spdlog::error("event sink failed to start: name={}", sink->name());
+            running_.store(false);
+            stop_components();
             return false;
         }
         if (sink) {
@@ -119,6 +131,8 @@ bool EventDispatcherGroup::start() {
     for (const std::unique_ptr<EventDispatcher>& dispatcher : dispatchers_) {
         if (dispatcher && !dispatcher->start()) {
             spdlog::error("event dispatcher failed to start");
+            running_.store(false);
+            stop_components();
             return false;
         }
     }
@@ -127,6 +141,14 @@ bool EventDispatcherGroup::start() {
 }
 
 void EventDispatcherGroup::stop() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    if (!running_.exchange(false)) {
+        return;
+    }
+    stop_components();
+}
+
+void EventDispatcherGroup::stop_components() {
     for (std::unique_ptr<EventDispatcher>& dispatcher : dispatchers_) {
         if (dispatcher) {
             dispatcher->stop();

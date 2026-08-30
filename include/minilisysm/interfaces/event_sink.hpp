@@ -16,7 +16,9 @@ struct SinkStats {
     uint64_t written_events{0};
     uint64_t write_errors{0};
     uint64_t rotated_files{0};
-    uint64_t fsync_count{0};
+    uint64_t fsync_count{0}; // Successful durable syncs.
+    uint64_t fsync_failures{0};
+    uint64_t fsync_rate_limited{0};
     uint64_t sent_events{0};
     uint64_t send_errors{0};
     uint64_t retry_count{0};

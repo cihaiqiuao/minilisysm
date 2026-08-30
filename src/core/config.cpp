@@ -134,6 +134,28 @@ std::vector<std::string> split_csv(std::string_view value) {
     return result;
 }
 
+bool valid_ipv4(std::string_view value) {
+    size_t offset = 0;
+    for (uint32_t octet = 0; octet < 4; ++octet) {
+        const size_t dot = value.find('.', offset);
+        const std::string_view part = value.substr(offset, dot == std::string_view::npos ? value.size() - offset
+                                                                                          : dot - offset);
+        unsigned int parsed = 0;
+        const auto [parsed_end, parse_error] = std::from_chars(part.data(), part.data() + part.size(), parsed);
+        if (part.empty() || parse_error != std::errc{} || parsed_end != part.data() + part.size() || parsed > 255) {
+            return false;
+        }
+        if (octet == 3) {
+            return dot == std::string_view::npos;
+        }
+        if (dot == std::string_view::npos) {
+            return false;
+        }
+        offset = dot + 1;
+    }
+    return false;
+}
+
 void assign_csv(const Ini& ini, const char* section, const char* key, std::vector<std::string>& target) {
     const std::string* value = find_value(ini, section, key);
     if (value) {
@@ -162,6 +184,7 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path) {
     assign_bool(ini, "metrics", "scrape_runtime", config.metrics_scrape_runtime);
     assign_bool(ini, "metrics", "scrape_collectors", config.metrics_scrape_collectors);
     assign_bool(ini, "metrics", "scrape_rule_state", config.metrics_scrape_rule_state);
+    assign_csv(ini, "metrics", "allowed_clients", config.metrics_allowed_clients);
 
     assign_bool(ini, "agent_log", "enable", config.agent_log_enable);
     assign_string(ini, "agent_log", "level", config.agent_log_level);
@@ -192,6 +215,9 @@ MonitorConfig ConfigLoader::load_or_default(const std::string& path) {
     assign_int(ini, "memory_rule", "continuous_critical_windows", config.continuous_critical_windows);
     assign_int(ini, "memory_rule", "recovery_windows", config.recovery_windows);
     assign_int(ini, "memory_rule", "cooldown_sec", config.cooldown_sec);
+
+    assign_int(ini, "rule_runtime", "cooldown_sec", config.cooldown_sec);
+    assign_int(ini, "rule_runtime", "state_ttl_sec", config.state_ttl_sec);
 
     assign_bool(ini, "self_protection", "enable", config.self_protection_enable);
     assign_int(ini, "self_protection", "queue_warning_percent", config.queue_warning_percent);
@@ -300,6 +326,17 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
     }
     if (config.metrics_port == 0) {
         config.metrics_enable = false;
+    }
+    for (const std::string& client : config.metrics_allowed_clients) {
+        if (!valid_ipv4(client)) {
+            if (error) {
+                *error = "metrics allowed_clients must contain valid IPv4 addresses";
+            }
+            return false;
+        }
+    }
+    if (config.state_ttl_sec == 0) {
+        config.state_ttl_sec = 3600;
     }
     if (config.agent_log_level != "debug" && config.agent_log_level != "info" && config.agent_log_level != "warn" &&
         config.agent_log_level != "error") {

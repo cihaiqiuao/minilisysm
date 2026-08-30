@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <unordered_set>
@@ -223,6 +224,7 @@ struct EbpfSchedDelayCollector::Impl {
         uint64_t matched_pids,
         uint64_t matched_tids)
     {
+        std::lock_guard<std::mutex> lock(runtime_stats_mutex_);
         runtime_stats.allowlist_scanned_processes = scanned_processes;
         runtime_stats.allowlist_matched_pids = matched_pids;
         runtime_stats.allowlist_matched_tids = matched_tids;
@@ -304,11 +306,14 @@ struct EbpfSchedDelayCollector::Impl {
         if (bpf_map_lookup_elem(bpf_map__fd(skel->maps.counters), &key, &counters) != 0) {
             ++poll_failures;
         }
-        runtime_stats.ebpf_ringbuf_drops = counters.ringbuf_drops;
-        runtime_stats.ebpf_allowlist_exec_seen = counters.allowlist_exec_seen;
-        runtime_stats.ebpf_allowlist_exit_cleaned = counters.allowlist_exit_cleaned;
-        runtime_stats.ebpf_allowlist_stale_hits = counters.allowlist_stale_hits;
-        runtime_stats.ebpf_aggregate_drops = counters.aggregate_drops;
+        {
+            std::lock_guard<std::mutex> lock(runtime_stats_mutex_);
+            runtime_stats.ebpf_ringbuf_drops = counters.ringbuf_drops;
+            runtime_stats.ebpf_allowlist_exec_seen = counters.allowlist_exec_seen;
+            runtime_stats.ebpf_allowlist_exit_cleaned = counters.allowlist_exit_cleaned;
+            runtime_stats.ebpf_allowlist_stale_hits = counters.allowlist_stale_hits;
+            runtime_stats.ebpf_aggregate_drops = counters.aggregate_drops;
+        }
         return counters;
     }
 
@@ -324,6 +329,12 @@ struct EbpfSchedDelayCollector::Impl {
         return delta;
     }
 
+    SchedDelayCollectorRuntimeStats runtime_stats_snapshot() const
+    {
+        std::lock_guard<std::mutex> lock(runtime_stats_mutex_);
+        return runtime_stats;
+    }
+
     EbpfSchedDelayCollector* owner{nullptr};
     sched_delay_bpf* skel{nullptr};
     ring_buffer* ring_buffer_{nullptr};
@@ -331,6 +342,7 @@ struct EbpfSchedDelayCollector::Impl {
     uint64_t poll_failures{0};
     uint64_t last_counter_total{0};
     uint64_t last_exec_seen{0};
+    mutable std::mutex runtime_stats_mutex_;
     SchedDelayCollectorRuntimeStats runtime_stats{};
     std::chrono::steady_clock::time_point last_filter_refresh{};
 };
@@ -376,7 +388,7 @@ bool EbpfSchedDelayCollector::accepts(int32_t pid, int32_t tid) const
 
 SchedDelayCollectorRuntimeStats EbpfSchedDelayCollector::runtime_stats() const
 {
-    return impl_ ? impl_->runtime_stats : SchedDelayCollectorRuntimeStats{};
+    return impl_ ? impl_->runtime_stats_snapshot() : SchedDelayCollectorRuntimeStats{};
 }
 
 } // namespace lisysm

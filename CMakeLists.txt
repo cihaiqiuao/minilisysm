@@ -21,6 +21,7 @@ add_library(minilisysm_core
     src/core/time.cpp
     src/collectors/collector_factory.cpp
     src/collectors/cpu_usage_collector.cpp
+    src/collectors/hardware_health_collector.cpp
     src/collectors/io_delay_collector.cpp
     src/collectors/linux_proc_reader.cpp
     src/collectors/meminfo_collector.cpp
@@ -30,9 +31,11 @@ add_library(minilisysm_core
     src/rules/rule_engine.cpp
     src/runtime/event_dispatcher.cpp
     src/runtime/metric_registry.cpp
+    src/runtime/monitor_metrics.cpp
     src/runtime/metrics_server.cpp
     src/runtime/monitor.cpp
     src/runtime/thread_policy.cpp
+    src/runtime/whitelisted_process_reader.cpp
     src/storage/event_serializer.cpp
     src/storage/jsonl_event_sink.cpp
     src/storage/network_event_sink.cpp
@@ -185,6 +188,9 @@ if(MINILISYSM_BUILD_TESTS)
     minilisysm_add_unit_test(test_factories factories tests/unit/test_factories.cpp)
     minilisysm_add_unit_test(test_event_serializer event_serializer tests/unit/test_event_serializer.cpp)
     minilisysm_add_unit_test(test_event_dispatcher event_dispatcher tests/unit/test_event_dispatcher.cpp)
+    minilisysm_add_unit_test(test_monitor monitor tests/unit/test_monitor.cpp)
+    minilisysm_add_unit_test(test_whitelisted_process_reader whitelisted_process_reader tests/unit/test_whitelisted_process_reader.cpp)
+    target_include_directories(test_whitelisted_process_reader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     minilisysm_add_unit_test(test_jsonl_event_sink jsonl_event_sink tests/unit/test_jsonl_event_sink.cpp)
     minilisysm_add_unit_test(test_metrics_server metrics_server tests/unit/test_metrics_server.cpp)
     minilisysm_add_unit_test(test_metric_registry metric_registry tests/unit/test_metric_registry.cpp)
@@ -193,8 +199,32 @@ if(MINILISYSM_BUILD_TESTS)
     minilisysm_add_unit_test(test_meminfo_collector meminfo_collector tests/unit/test_meminfo_collector.cpp)
     minilisysm_add_unit_test(test_self_status_collector self_status_collector tests/unit/test_self_status_collector.cpp)
     minilisysm_add_unit_test(test_cpu_usage_collector cpu_usage_collector tests/unit/test_cpu_usage_collector.cpp)
+    minilisysm_add_unit_test(test_hardware_health_collector hardware_health_collector tests/unit/test_hardware_health_collector.cpp)
     minilisysm_add_unit_test(test_io_delay_collector io_delay_collector tests/unit/test_io_delay_collector.cpp)
     minilisysm_add_unit_test(test_sched_delay_collector sched_delay_collector tests/unit/test_sched_delay_collector.cpp)
+
+    add_executable(test_sigterm_shutdown tests/integration/test_sigterm_shutdown.cpp)
+    target_link_libraries(test_sigterm_shutdown PRIVATE Threads::Threads)
+    add_dependencies(test_sigterm_shutdown minilisysm)
+    set_target_properties(test_sigterm_shutdown PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+    )
+    add_test(NAME sigterm_shutdown COMMAND test_sigterm_shutdown $<TARGET_FILE:minilisysm>)
+    set_tests_properties(sigterm_shutdown PROPERTIES
+        TIMEOUT 15
+        SKIP_RETURN_CODE 77
+    )
+
+    add_executable(test_process_memory_growth tests/integration/test_process_memory_growth.cpp)
+    target_link_libraries(test_process_memory_growth PRIVATE minilisysm_core Threads::Threads)
+    set_target_properties(test_process_memory_growth PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/tests
+    )
+    add_test(NAME process_memory_growth COMMAND test_process_memory_growth)
+    set_tests_properties(process_memory_growth PROPERTIES
+        TIMEOUT 15
+        SKIP_RETURN_CODE 77
+    )
 endif()
 
 if(MINILISYSM_BUILD_TOOLS)

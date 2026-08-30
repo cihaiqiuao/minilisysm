@@ -21,9 +21,20 @@ void set_event_target(InternalEvent& event, const std::string& target) {
     event.target[kEventTargetSize - 1] = '\0';
 }
 
+uint32_t event_window_sec(EventLevel level, uint32_t interval_ms, uint32_t warning_windows,
+                          uint32_t critical_windows, uint32_t recovery_windows) {
+    uint32_t windows = warning_windows;
+    if (level == EventLevel::Critical) {
+        windows = critical_windows;
+    } else if (level == EventLevel::Recovery) {
+        windows = recovery_windows;
+    }
+    return static_cast<uint32_t>(static_cast<uint64_t>(interval_ms) * windows / 1000ULL);
+}
+
 } // namespace
 
-RuleEngine::RuleEngine(const MonitorConfig& config) : config_(config) {
+RuleEngine::RuleEngine(const MonitorConfig& config, Clock clock) : config_(config), clock_(clock ? clock : monotonic_ms) {
     if (!config_.memory_rule_enable) {
         memory_.state = RuleState::Disabled;
     }
@@ -87,7 +98,10 @@ std::optional<InternalEvent> RuleEngine::evaluate_cpu_usage(const CpuUsageSample
     if (!config_.cpu_usage_enable || !sample.valid || sample.cpu.empty()) {
         return std::nullopt;
     }
+    const uint64_t now_ms = clock_();
     RuleContext& context = cpu_usage_[sample.cpu];
+    context.last_seen_ms = now_ms;
+    prune_expired_contexts(now_ms);
     const ThresholdRuleDefinition rule{
         RuleId::CpuUsage,
         EventType::CpuUsageRisk,
@@ -112,7 +126,10 @@ std::optional<InternalEvent> RuleEngine::evaluate_process_memory_growth(const st
     if (!config_.process_memory_enable || name.empty() || pid <= 0) {
         return std::nullopt;
     }
+    const uint64_t now_ms = clock_();
     RuleContext& context = process_memory_[name + ":" + std::to_string(pid)];
+    context.last_seen_ms = now_ms;
+    prune_expired_contexts(now_ms);
     const ThresholdRuleDefinition rule{
         RuleId::WhitelistedProcessMemory,
         EventType::WhitelistedProcessMemoryRisk,
@@ -131,6 +148,10 @@ std::optional<InternalEvent> RuleEngine::evaluate_process_memory_growth(const st
                                          growth_mb, context);
     }
     return std::nullopt;
+}
+
+void RuleEngine::forget_process_memory(const std::string& name, int32_t pid) {
+    process_memory_.erase(name + ":" + std::to_string(pid));
 }
 
 std::optional<InternalEvent> RuleEngine::evaluate_queue(const QueueSnapshot& snapshot) {
@@ -177,7 +198,10 @@ std::optional<InternalEvent> RuleEngine::evaluate_sched_delay(const SchedDelaySa
     if (!config_.sched_delay_enable || !sample.valid) {
         return std::nullopt;
     }
+    const uint64_t now_ms = clock_();
     RuleContext& context = sched_delay_[sched_key(sample.pid, sample.tid)];
+    context.last_seen_ms = now_ms;
+    prune_expired_contexts(now_ms);
     const double wait_us = static_cast<double>(sample.delta_wait_sum_us);
     const bool switch_hit = sample.delta_involuntary_switches >= config_.sched_involuntary_switch_warning;
     const ThresholdRuleDefinition rule{
@@ -204,7 +228,10 @@ std::optional<InternalEvent> RuleEngine::evaluate_io_delay(const IoDelaySample& 
     if (!config_.io_delay_enable || !sample.valid || sample.device.empty()) {
         return std::nullopt;
     }
+    const uint64_t now_ms = clock_();
     RuleContext& context = io_delay_[sample.device];
+    context.last_seen_ms = now_ms;
+    prune_expired_contexts(now_ms);
     const double await_ms = sample.avg_await_ms;
     const bool critical_util_hit = sample.util_percent >= config_.io_util_critical_percent && sample.in_flight > 0;
     const bool warning_util_hit = sample.util_percent >= config_.io_util_warning_percent && sample.in_flight > 0;
@@ -234,6 +261,8 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(RuleContext& context,
                                                          const ThresholdRuleDefinition& definition, double value,
                                                          bool external_warning_trigger, bool external_critical_trigger,
                                                          bool external_recovery_blocked) {
+    const uint64_t now_ms = clock_();
+    context.last_seen_ms = now_ms;
     context.max_value = std::max(context.max_value, value);
     const auto above_or_equal = [](double lhs, double rhs) { return lhs >= rhs; };
     const auto below_or_equal = [](double lhs, double rhs) { return lhs <= rhs; };
@@ -249,6 +278,8 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(RuleContext& context,
         if ((external_critical_trigger || context.critical_hit_count >= definition.critical_windows) &&
             context.state != RuleState::Critical) {
             context.state = RuleState::Critical;
+            context.notification_active = true;
+            context.last_activation_event_ms = now_ms;
             return EventLevel::Critical;
         }
         return std::nullopt;
@@ -266,6 +297,11 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(RuleContext& context,
         if ((external_warning_trigger || context.hit_count >= definition.warning_windows) &&
             context.state == RuleState::Normal) {
             context.state = RuleState::Warning;
+            if (cooldown_active(context, now_ms)) {
+                return std::nullopt;
+            }
+            context.notification_active = true;
+            context.last_activation_event_ms = now_ms;
             return EventLevel::Warning;
         }
         return std::nullopt;
@@ -277,6 +313,10 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(RuleContext& context,
             context.state = RuleState::Normal;
             context.hit_count = 0;
             context.critical_hit_count = 0;
+            if (!context.notification_active) {
+                return std::nullopt;
+            }
+            context.notification_active = false;
             return EventLevel::Recovery;
         }
         return std::nullopt;
@@ -286,6 +326,47 @@ std::optional<EventLevel> RuleEngine::evaluate_threshold(RuleContext& context,
     context.critical_hit_count = 0;
     context.recovery_count = 0;
     return std::nullopt;
+}
+
+void RuleEngine::prune_expired_contexts(uint64_t now_ms) {
+    const uint64_t ttl_sec = config_.state_ttl_sec == 0 ? 3600 : config_.state_ttl_sec;
+    const uint64_t ttl_ms = ttl_sec * 1000ULL;
+    const auto expired = [now_ms, ttl_ms](const auto& item) {
+        return item.second.last_seen_ms != 0 && now_ms - item.second.last_seen_ms >= ttl_ms;
+    };
+    for (auto it = cpu_usage_.begin(); it != cpu_usage_.end();) {
+        if (expired(*it)) {
+            it = cpu_usage_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = sched_delay_.begin(); it != sched_delay_.end();) {
+        if (expired(*it)) {
+            it = sched_delay_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = io_delay_.begin(); it != io_delay_.end();) {
+        if (expired(*it)) {
+            it = io_delay_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = process_memory_.begin(); it != process_memory_.end();) {
+        if (expired(*it)) {
+            it = process_memory_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+bool RuleEngine::cooldown_active(const RuleContext& context, uint64_t now_ms) const {
+    return config_.cooldown_sec != 0 && context.last_activation_event_ms != 0 &&
+           now_ms - context.last_activation_event_ms < static_cast<uint64_t>(config_.cooldown_sec) * 1000ULL;
 }
 
 bool RuleEngine::recovered(const ThresholdRuleDefinition& definition, double value,
@@ -306,7 +387,10 @@ InternalEvent RuleEngine::make_memory_event(EventLevel level, EventStatus status
     event.value = value_mb;
     event.warning_threshold = static_cast<double>(config_.mem_available_warning_mb);
     event.critical_threshold = static_cast<double>(config_.mem_available_critical_mb);
-    event.window_sec = config_.fast_collect_interval_ms * config_.continuous_warning_windows / 1000;
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
+                                        config_.continuous_warning_windows,
+                                        config_.continuous_critical_windows,
+                                        config_.recovery_windows);
     event.continuous_hit_count = memory_.hit_count;
     event.hit_count = memory_.total_hit_count;
     event.evidence_count = 2;
@@ -326,7 +410,10 @@ InternalEvent RuleEngine::make_self_rss_event(EventLevel level, EventStatus stat
     event.value = rss_mb;
     event.warning_threshold = static_cast<double>(config_.self_rss_soft_limit_mb);
     event.critical_threshold = static_cast<double>(config_.self_rss_hard_limit_mb);
-    event.window_sec = config_.fast_collect_interval_ms * config_.continuous_warning_windows / 1000;
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
+                                        config_.continuous_warning_windows,
+                                        config_.continuous_critical_windows,
+                                        config_.self_recovery_windows);
     event.continuous_hit_count = self_rss_.hit_count;
     event.hit_count = self_rss_.total_hit_count;
     event.evidence_count = 2;
@@ -348,7 +435,10 @@ InternalEvent RuleEngine::make_cpu_usage_event(EventLevel level, EventStatus sta
     event.value = sample.usage_percent;
     event.warning_threshold = config_.cpu_usage_warning_percent;
     event.critical_threshold = config_.cpu_usage_critical_percent;
-    event.window_sec = config_.fast_collect_interval_ms * config_.cpu_usage_continuous_warning_windows / 1000;
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
+                                        config_.cpu_usage_continuous_warning_windows,
+                                        config_.cpu_usage_continuous_critical_windows,
+                                        config_.cpu_usage_recovery_windows);
     event.continuous_hit_count = context.hit_count;
     event.hit_count = context.total_hit_count;
     event.evidence_count = 4;
@@ -397,7 +487,10 @@ InternalEvent RuleEngine::make_queue_event(EventLevel level, EventStatus status,
     event.value = queue_percent;
     event.warning_threshold = static_cast<double>(config_.queue_warning_percent);
     event.critical_threshold = static_cast<double>(config_.queue_critical_percent);
-    event.window_sec = config_.fast_collect_interval_ms * config_.continuous_warning_windows / 1000;
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
+                                        config_.continuous_warning_windows,
+                                        config_.continuous_critical_windows,
+                                        config_.self_recovery_windows);
     event.continuous_hit_count = queue_.hit_count;
     event.hit_count = queue_.total_hit_count;
     event.evidence_count = 6;
@@ -442,7 +535,10 @@ InternalEvent RuleEngine::make_sched_delay_event(const SchedDelaySample& sample,
     event.value = wait_sum_us;
     event.warning_threshold = static_cast<double>(config_.sched_wait_sum_warning_us);
     event.critical_threshold = static_cast<double>(config_.sched_wait_sum_critical_us);
-    event.window_sec = config_.fast_collect_interval_ms * config_.sched_continuous_warning_windows / 1000;
+    event.window_sec = event_window_sec(level, config_.low_freq_collect_interval_ms,
+                                        config_.sched_continuous_warning_windows,
+                                        config_.sched_continuous_critical_windows,
+                                        config_.sched_recovery_windows);
     event.continuous_hit_count = context.hit_count;
     event.hit_count = context.total_hit_count;
     event.evidence_count = 6;
@@ -472,7 +568,10 @@ InternalEvent RuleEngine::make_io_delay_event(const IoDelaySample& sample, Event
     event.value = await_ms;
     event.warning_threshold = config_.io_await_warning_ms;
     event.critical_threshold = config_.io_await_critical_ms;
-    event.window_sec = config_.fast_collect_interval_ms * config_.io_continuous_warning_windows / 1000;
+    event.window_sec = event_window_sec(level, config_.low_freq_collect_interval_ms,
+                                        config_.io_continuous_warning_windows,
+                                        config_.io_continuous_critical_windows,
+                                        config_.io_recovery_windows);
     event.continuous_hit_count = context.hit_count;
     event.hit_count = context.total_hit_count;
     event.evidence_count = 5;

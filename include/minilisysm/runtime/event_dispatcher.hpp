@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -48,6 +49,7 @@ class EventDispatcher {
     SpscRingBuffer<InternalEvent>& source_queue_;
     std::vector<SpscRingBuffer<InternalEvent>*> sink_queues_;
     std::atomic<bool> running_{false};
+    std::mutex lifecycle_mutex_;
     std::thread worker_;
     mutable std::atomic<uint64_t> consumed_events_{0};
     mutable std::atomic<uint64_t> sink_queue_push_failures_{0};
@@ -74,10 +76,14 @@ class EventDispatcherGroup {
     }
 
   private:
+    void stop_components();
+
     const MonitorConfig& config_;
     std::vector<SpscRingBuffer<InternalEvent>*>& source_queues_;
     std::vector<std::unique_ptr<EventSink>> sinks_;
     std::vector<std::unique_ptr<EventDispatcher>> dispatchers_;
+    std::atomic<bool> running_{false};
+    std::mutex lifecycle_mutex_;
 };
 
 } // namespace lisysm

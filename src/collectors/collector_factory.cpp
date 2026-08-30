@@ -1,6 +1,7 @@
 #include "minilisysm/collectors/collector_factory.hpp"
 
 #include "minilisysm/collectors/cpu_usage_collector.hpp"
+#include "minilisysm/collectors/hardware_health_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
 #include "minilisysm/collectors/sched_delay_collector.hpp"
@@ -22,6 +23,10 @@ std::unique_ptr<CpuUsageCollector> CollectorFactory::create_cpu_usage_collector(
 
 std::unique_ptr<SelfStatusCollector> CollectorFactory::create_self_status_collector() {
     return std::make_unique<SelfStatusCollector>();
+}
+
+std::unique_ptr<HardwareHealthCollector> CollectorFactory::create_hardware_health_collector() {
+    return std::make_unique<HardwareHealthCollector>();
 }
 
 std::unique_ptr<SchedDelayCollectorInterface>

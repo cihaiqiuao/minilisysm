@@ -8,8 +8,8 @@
 
 namespace lisysm {
 
-CpuUsageCollector::CpuUsageCollector(const MonitorConfig& config, std::string stat_path)
-    : config_(config), stat_path_(std::move(stat_path)) {}
+CpuUsageCollector::CpuUsageCollector(const MonitorConfig& config, std::string stat_path, Clock clock)
+    : config_(config), stat_path_(std::move(stat_path)), clock_(clock ? clock : monotonic_ms) {}
 
 std::vector<CpuUsageSample> CpuUsageCollector::collect() {
     last_failure_count_ = 0;
@@ -22,6 +22,13 @@ std::vector<CpuUsageSample> CpuUsageCollector::collect() {
         ++last_failure_count_;
         return {};
     }
+
+    const uint64_t now_ms = clock_();
+    for (const auto& [cpu, stats] : current) {
+        (void)stats;
+        baseline_last_seen_ms_[cpu] = now_ms;
+    }
+    prune_baselines(now_ms);
 
     std::vector<CpuUsageSample> samples;
     samples.reserve(current.size());
@@ -57,6 +64,19 @@ std::vector<CpuUsageSample> CpuUsageCollector::collect() {
         samples.push_back(std::move(sample));
     }
     return samples;
+}
+
+void CpuUsageCollector::prune_baselines(uint64_t now_ms) {
+    const uint64_t ttl_sec = config_.state_ttl_sec == 0 ? 3600 : config_.state_ttl_sec;
+    const uint64_t ttl_ms = ttl_sec * 1000ULL;
+    for (auto it = baseline_last_seen_ms_.begin(); it != baseline_last_seen_ms_.end();) {
+        if (now_ms - it->second >= ttl_ms) {
+            baselines_.erase(it->first);
+            it = baseline_last_seen_ms_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 uint64_t CpuUsageCollector::total_jiffies(const CpuStats& stats) {

@@ -176,6 +176,42 @@ sudo systemctl disable --now minilisysm.service
 
 默认从 `/metrics` 打印带颜色高亮的当前状态，即使没有触发告警事件也会显示 CPU、内存、队列、collector、I/O 和 sink 状态；metrics 不可用时回退到本机 `/proc` 状态。终端输出会自动上色，重定向时自动关闭颜色，也可以显式使用 `--color` 或 `--no-color`。`--summary` 查看最新人工事件摘要；`--agent` 查看 Agent 运行日志；`--jsonl` 查看最新机器可读事件。需要查看其他日志根目录时使用 `--root PATH`。
 
+## 浏览器和手机状态页
+
+默认配置监听所有网卡，方便同一局域网内的 PC、手机或平板直接查看状态：
+
+```ini
+[metrics]
+enable=true
+bind_host=0.0.0.0
+port=9108
+allowed_clients=127.0.0.1,192.168.2.100
+```
+
+`allowed_clients` is an optional exact IPv4 allowlist. Leave it empty to keep LAN access open. It is application-layer filtering only: it does not replace a firewall, VPN, or TLS. The server supports IPv4 only and must not be exposed directly to the public internet.
+
+本机浏览器访问：
+
+```text
+http://127.0.0.1:9108/status
+```
+
+同一局域网内的其他设备访问：
+
+```text
+http://<设备IP>:9108/status
+```
+
+如果运行环境有防火墙，需要放行 TCP 9108 端口。状态页每 2 秒刷新一次，数据来自同一服务的 `/metrics`。当前 HTTP 服务不内置认证和 TLS，不建议直接暴露到公网；远程访问应放在可信内网、车端调试网络或 VPN 后面。
+
+硬件健康区域依赖目标系统是否暴露通用 Linux 节点：
+
+- 电池：`/sys/class/power_supply/*/capacity`、`cycle_count`、`charge_full`、`charge_full_design`、`temp`
+- 存储寿命：`/sys/block/*/device/life_time`、`pre_eol_info`
+- 内存健康：`/sys/devices/system/edac/**/ce_count`、`ue_count`
+
+没有这些节点时不会报错，页面显示暂无。车端 BMS、UFS 或厂商私有健康接口可以后续作为平台适配层继续接入。
+
 ## I/O 堵塞检测配置
 
 默认配置启用 `[io_delay_rule]`，通过 `/proc/diskstats` 采集块设备 I/O 状态，不需要额外依赖。

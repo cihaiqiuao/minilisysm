@@ -2,6 +2,7 @@
 #include "minilisysm/core/config.hpp"
 
 #include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -33,6 +34,16 @@ void write_file(const fs::path& path, const std::string& content) {
     std::ofstream os(path);
     os << content;
 }
+
+namespace {
+
+uint64_t test_now_ms = 0;
+
+uint64_t test_clock() {
+    return test_now_ms;
+}
+
+}  // namespace
 
 int main() {
     const fs::path mock_proc = "/tmp/mock_proc_sched";
@@ -136,6 +147,26 @@ int main() {
     lisysm::SchedDelayCollector not_found_collector(config, "/tmp/non_existent_mock_proc");
     CHECK(not_found_collector.collect().empty());
     CHECK(not_found_collector.last_failure_count() > 0);
+
+    lisysm::MonitorConfig ttl_config = config;
+    ttl_config.state_ttl_sec = 1;
+    ttl_config.sched_thread_whitelist = {"target_thread"};
+    test_now_ms = 1'000;
+    write_file(mock_proc / "100" / "task" / "101" / "comm", "target_thread\n");
+    write_file(mock_proc / "100" / "task" / "101" / "sched",
+               "se.statistics.wait_sum : 5000.0\nnr_involuntary_switches : 25\n");
+    lisysm::SchedDelayCollector ttl_collector(ttl_config, mock_proc.string(), test_clock);
+    CHECK(ttl_collector.collect().empty());
+
+    test_now_ms = 2'500;
+    fs::remove_all(mock_proc / "100" / "task" / "101");
+    CHECK(ttl_collector.collect().empty());
+
+    test_now_ms = 2'600;
+    write_file(mock_proc / "100" / "task" / "101" / "comm", "renamed_thread\n");
+    write_file(mock_proc / "100" / "task" / "101" / "sched",
+               "se.statistics.wait_sum : 6000.0\nnr_involuntary_switches : 30\n");
+    CHECK(ttl_collector.collect().empty());
 
     // Cleanup
     fs::remove_all(mock_proc);

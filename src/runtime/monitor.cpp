@@ -1,6 +1,7 @@
 #include "minilisysm/runtime/monitor.hpp"
 #include "minilisysm/collectors/collector_factory.hpp"
 #include "minilisysm/collectors/cpu_usage_collector.hpp"
+#include "minilisysm/collectors/hardware_health_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
 #include "minilisysm/collectors/self_status_collector.hpp"
@@ -10,16 +11,14 @@
 #include "minilisysm/runtime/metrics_server.hpp"
 #include "minilisysm/runtime/thread_policy.hpp"
 #include "minilisysm/storage/storage_factory.hpp"
+#include "whitelisted_process_reader.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <optional>
-#include <sstream>
+#include <unordered_set>
 #include <unistd.h>
 #include <utility>
 
@@ -32,72 +31,6 @@ constexpr uint32_t kSchedDelayCollectorId = 3;
 constexpr uint32_t kIoDelayCollectorId = 4;
 constexpr uint32_t kCpuUsageCollectorId = 5;
 constexpr uint64_t kCollectorFailureEventIntervalMs = 60000;
-
-struct WhitelistedProcessSample {
-    int pid{0};
-    std::string name;
-    uint64_t cpu_ticks{0};
-    uint64_t rss_bytes{0};
-    uint64_t threads{0};
-};
-
-std::optional<WhitelistedProcessSample> read_whitelisted_process_sample(const std::filesystem::path& proc) {
-    std::ifstream comm_file(proc / "comm");
-    std::string name;
-    std::getline(comm_file, name);
-    if (name.empty()) {
-        return std::nullopt;
-    }
-    std::ifstream stat_file(proc / "stat");
-    std::string stat;
-    std::getline(stat_file, stat);
-    const size_t close_paren = stat.rfind(") ");
-    if (close_paren == std::string::npos) {
-        return std::nullopt;
-    }
-    std::istringstream fields(stat.substr(close_paren + 2));
-    std::string field;
-    uint64_t utime = 0;
-    uint64_t stime = 0;
-    try {
-        for (int index = 0; fields >> field; ++index) {
-            if (index == 11) utime = std::stoull(field);
-            if (index == 12) stime = std::stoull(field);
-        }
-    } catch (...) {
-        return std::nullopt;
-    }
-    std::error_code ec;
-    uint64_t threads = 0;
-    for (const auto& task : std::filesystem::directory_iterator(proc / "task", ec)) {
-        if (task.is_directory()) ++threads;
-    }
-    std::ifstream status_file(proc / "status");
-    uint64_t rss_bytes = 0;
-    std::string line;
-    while (std::getline(status_file, line)) {
-        if (line.rfind("VmRSS:", 0) == 0) {
-            std::istringstream value(line.substr(6));
-            uint64_t rss_kb = 0;
-            value >> rss_kb;
-            rss_bytes = rss_kb * 1024;
-            break;
-        }
-    }
-    int pid = 0;
-    try { pid = std::stoi(proc.filename().string()); } catch (...) { return std::nullopt; }
-    return WhitelistedProcessSample{pid, std::move(name), utime + stime, rss_bytes, threads};
-}
-
-size_t event_type_index(EventType type) {
-    const size_t index = static_cast<size_t>(type);
-    return index < 12 ? index : 0;
-}
-
-size_t event_level_index(EventLevel level) {
-    const size_t index = static_cast<size_t>(level);
-    return index < 4 ? index : 0;
-}
 
 void set_evidence_key(EvidenceItem& item, const char* key) {
     std::strncpy(item.key.data(), key, kEvidenceKeySize - 1);
@@ -117,7 +50,7 @@ std::chrono::steady_clock::time_point next_deadline(std::chrono::steady_clock::t
 } // namespace
 
 Monitor::Monitor(MonitorConfig config)
-    : config_(std::move(config)), fast_queue_(config_.event_queue_capacity, config_.critical_reserved_slots,
+    : config_(std::move(config)), metrics_(config_), fast_queue_(config_.event_queue_capacity, config_.critical_reserved_slots,
                                               config_.drop_info_when_full, config_.drop_warning_when_full),
       sched_queue_(config_.event_queue_capacity, config_.critical_reserved_slots, config_.drop_info_when_full,
                    config_.drop_warning_when_full),
@@ -127,6 +60,7 @@ Monitor::Monitor(MonitorConfig config)
       meminfo_(CollectorFactory::create_meminfo_collector()),
       cpu_usage_(CollectorFactory::create_cpu_usage_collector(config_)),
       self_status_(CollectorFactory::create_self_status_collector()),
+      hardware_health_(CollectorFactory::create_hardware_health_collector()),
       sched_delay_(CollectorFactory::create_sched_delay_collector(config_)),
       io_delay_(CollectorFactory::create_io_delay_collector(config_)),
       metrics_server_(std::make_unique<MetricsServer>(config_, [this]() { return render_metrics(); })),
@@ -138,6 +72,11 @@ Monitor::~Monitor() {
 }
 
 bool Monitor::start() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+    if (running_.load()) {
+        spdlog::warn("monitor start skipped: already running");
+        return false;
+    }
     if (!config_.enable) {
         spdlog::warn("monitor start skipped: linux_stability_monitor.enable=false");
         return false;
@@ -163,10 +102,13 @@ bool Monitor::start() {
 }
 
 void Monitor::stop() {
+    std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     const bool was_running = running_.exchange(false);
-    if (was_running) {
-        spdlog::info("monitor stopping");
+    if (!was_running) {
+        return;
     }
+    spdlog::info("monitor stopping");
+    stop_condition_.notify_all();
     if (fast_collector_.joinable()) {
         fast_collector_.join();
         spdlog::debug("fast collector thread joined");
@@ -177,9 +119,7 @@ void Monitor::stop() {
     }
     metrics_server_->stop();
     dispatcher_->stop();
-    if (was_running) {
-        spdlog::info("monitor stopped");
-    }
+    spdlog::info("monitor stopped");
 }
 
 void Monitor::fast_collect_loop() {
@@ -203,14 +143,14 @@ void Monitor::fast_collect_loop() {
             publish_collector_failure(fast_queue_, kMeminfoCollectorId, meminfo_failures_,
                                       last_meminfo_failure_event_ms_);
         } else {
-            record_meminfo_metrics(sample);
+            metrics_.record_meminfo(sample);
             if (auto event = fast_rules_->evaluate_memory(sample)) {
                 publish_event(fast_queue_, *event);
             }
         }
         const std::vector<CpuUsageSample> cpu_samples = cpu_usage_->collect();
         for (const CpuUsageSample& cpu_sample : cpu_samples) {
-            record_cpu_usage_metrics(cpu_sample);
+            metrics_.record_cpu_usage(cpu_sample);
             if (auto event = fast_rules_->evaluate_cpu_usage(cpu_sample)) {
                 publish_event(fast_queue_, *event);
             }
@@ -221,7 +161,7 @@ void Monitor::fast_collect_loop() {
         }
         const SelfStatusSample self_sample = self_status_->collect();
         if (self_sample.valid) {
-            record_self_status_metrics(self_sample);
+            metrics_.record_self_status(self_sample);
             if (auto event = fast_rules_->evaluate_self_rss(self_sample.vm_rss_kb)) {
                 publish_event(fast_queue_, *event);
             }
@@ -234,11 +174,11 @@ void Monitor::fast_collect_loop() {
             publish_event(fast_queue_, *event);
         }
         const uint64_t elapsed = monotonic_ms() - start;
-        metrics_.set_gauge("minilisysm_collector_elapsed_ms", static_cast<double>(elapsed), {{"collector", "fast"}});
+        metrics_.record_collector_elapsed("fast", elapsed);
         if (elapsed > config_.sched_collector_overrun_warning_ms) {
             spdlog::warn("fast collector overrun: elapsed_ms={} threshold_ms={}", elapsed,
                          config_.sched_collector_overrun_warning_ms);
-            metrics_.inc_counter("minilisysm_collector_overruns_total", 1.0, {{"collector", "fast"}});
+            metrics_.record_collector_overrun("fast");
             InternalEvent overrun;
             overrun.event_type = EventType::MonitorOverrun;
             overrun.level = EventLevel::Warning;
@@ -246,7 +186,12 @@ void Monitor::fast_collect_loop() {
             overrun.warning_threshold = static_cast<double>(config_.sched_collector_overrun_warning_ms);
             publish_event(fast_queue_, overrun);
         }
-        std::this_thread::sleep_until(deadline);
+        {
+            std::unique_lock<std::mutex> lock(stop_mutex_);
+            if (stop_condition_.wait_until(lock, deadline, [this]() { return !running_.load(); })) {
+                break;
+            }
+        }
         deadline = next_deadline(deadline, interval);
     }
 }
@@ -260,15 +205,16 @@ void Monitor::sched_collect_loop() {
     if (!set_current_thread_nice(config_.sched_collector_nice, &ignored)) {
         spdlog::warn("failed to set sched collector nice: nice={} reason={}", config_.sched_collector_nice, ignored);
     }
-    spdlog::info("sched collector thread running: interval_ms={} cpu={} nice={}", config_.fast_collect_interval_ms,
+    spdlog::info("sched collector thread running: interval_ms={} cpu={} nice={}", config_.low_freq_collect_interval_ms,
                  config_.sched_collector_cpu, config_.sched_collector_nice);
 
-    const auto interval = std::chrono::milliseconds(config_.fast_collect_interval_ms);
+    const auto interval = std::chrono::milliseconds(config_.low_freq_collect_interval_ms);
     auto deadline = std::chrono::steady_clock::now() + interval;
     while (running_.load()) {
         const uint64_t start = monotonic_ms();
-        for (const SchedDelaySample& sched_sample : sched_delay_->collect()) {
-            record_sched_delay_metrics(sched_sample);
+        const std::vector<SchedDelaySample> sched_samples = sched_delay_->collect();
+        metrics_.record_sched_delay(sched_samples);
+        for (const SchedDelaySample& sched_sample : sched_samples) {
             if (auto event = sched_rules_->evaluate_sched_delay(sched_sample)) {
                 publish_event(sched_queue_, *event);
             }
@@ -278,7 +224,7 @@ void Monitor::sched_collect_loop() {
                                       last_sched_delay_failure_event_ms_);
         }
         for (const IoDelaySample& io_sample : io_delay_->collect()) {
-            record_io_delay_metrics(io_sample);
+            metrics_.record_io_delay(io_sample);
             if (auto event = sched_rules_->evaluate_io_delay(io_sample)) {
                 publish_event(sched_queue_, *event);
             }
@@ -287,12 +233,13 @@ void Monitor::sched_collect_loop() {
             publish_collector_failure(sched_queue_, kIoDelayCollectorId, io_delay_failures_,
                                       last_io_delay_failure_event_ms_);
         }
+        metrics_.record_hardware_health(hardware_health_->collect());
         const uint64_t elapsed = monotonic_ms() - start;
-        metrics_.set_gauge("minilisysm_collector_elapsed_ms", static_cast<double>(elapsed), {{"collector", "sched"}});
+        metrics_.record_collector_elapsed("sched", elapsed);
         if (elapsed > config_.sched_collector_overrun_warning_ms) {
             spdlog::warn("sched collector overrun: elapsed_ms={} threshold_ms={}", elapsed,
                          config_.sched_collector_overrun_warning_ms);
-            metrics_.inc_counter("minilisysm_collector_overruns_total", 1.0, {{"collector", "sched"}});
+            metrics_.record_collector_overrun("sched");
             InternalEvent overrun;
             overrun.event_type = EventType::MonitorOverrun;
             overrun.level = EventLevel::Warning;
@@ -300,7 +247,12 @@ void Monitor::sched_collect_loop() {
             overrun.warning_threshold = static_cast<double>(config_.sched_collector_overrun_warning_ms);
             publish_event(sched_queue_, overrun);
         }
-        std::this_thread::sleep_until(deadline);
+        {
+            std::unique_lock<std::mutex> lock(stop_mutex_);
+            if (stop_condition_.wait_until(lock, deadline, [this]() { return !running_.load(); })) {
+                break;
+            }
+        }
         deadline = next_deadline(deadline, interval);
     }
 }
@@ -322,7 +274,7 @@ bool Monitor::publish_event(SpscRingBuffer<InternalEvent>& queue, const Internal
                      to_string(event.level), event.sequence);
         return false;
     }
-    record_event_metrics(event);
+    metrics_.record_event(event);
     return true;
 }
 
@@ -383,191 +335,81 @@ QueueSnapshot Monitor::queue_snapshot() const {
     return snapshot;
 }
 
-void Monitor::record_event_metrics(const InternalEvent& event) {
-    event_type_counts_[event_type_index(event.event_type)].fetch_add(1, std::memory_order_relaxed);
-    event_level_counts_[event_level_index(event.level)].fetch_add(1, std::memory_order_relaxed);
-    if (config_.metrics_scrape_runtime) {
-        metrics_.inc_counter("minilisysm_events_published_total");
-        metrics_.inc_counter("minilisysm_events_by_type_total", 1.0, {{"type", to_string(event.event_type)}});
-        metrics_.inc_counter("minilisysm_events_by_level_total", 1.0, {{"level", to_string(event.level)}});
-    }
-}
-
 std::string Monitor::render_metrics() const {
     const QueueSnapshot queues = queue_snapshot();
-    if (config_.metrics_scrape_runtime) {
-        metrics_.set_gauge("minilisysm_up", running_.load() ? 1.0 : 0.0);
-        metrics_.set_counter("minilisysm_events_published_total", static_cast<double>(next_sequence_.load() - 1));
-        metrics_.set_gauge("minilisysm_queue_depth", static_cast<double>(queues.depth), {{"queue", "source"}});
-        metrics_.set_gauge("minilisysm_queue_depth", static_cast<double>(queues.sink_depth), {{"queue", "sink"}});
-        metrics_.set_gauge("minilisysm_queue_capacity", static_cast<double>(queues.capacity), {{"queue", "source"}});
-        metrics_.set_gauge("minilisysm_queue_capacity", static_cast<double>(queues.sink_capacity), {{"queue", "sink"}});
-        metrics_.set_counter("minilisysm_queue_dropped_total", static_cast<double>(queues.dropped_count),
-                             {{"queue", "source"}});
-        metrics_.set_counter("minilisysm_queue_dropped_total", static_cast<double>(queues.sink_dropped_count),
-                             {{"queue", "sink"}});
-        metrics_.set_gauge("minilisysm_queue_high_watermark", static_cast<double>(queues.high_watermark),
-                           {{"queue", "source"}});
-        metrics_.set_gauge("minilisysm_queue_high_watermark", static_cast<double>(queues.sink_high_watermark),
-                           {{"queue", "sink"}});
-        metrics_.set_counter("minilisysm_dispatcher_sink_push_failures_total",
-                             static_cast<double>(queues.dispatcher_sink_push_failures));
-        if (dispatcher_) {
-            for (const auto& item : dispatcher_->sink_stats()) {
-                const std::vector<MetricLabel> label{{"sink", item.first}};
-                const SinkStats& stats = item.second;
-                metrics_.set_gauge("minilisysm_sink_queue_depth", static_cast<double>(stats.queue_depth), label);
-                metrics_.set_gauge("minilisysm_sink_queue_capacity", static_cast<double>(stats.queue_capacity), label);
-                metrics_.set_counter("minilisysm_sink_dropped_total", static_cast<double>(stats.dropped_events), label);
-                metrics_.set_counter("minilisysm_network_sent_total", static_cast<double>(stats.sent_events), label);
-                metrics_.set_counter("minilisysm_network_send_errors_total", static_cast<double>(stats.send_errors),
-                                     label);
-                metrics_.set_counter("minilisysm_network_retries_total", static_cast<double>(stats.retry_count), label);
-                metrics_.set_gauge("minilisysm_network_wal_pending_events",
-                                   static_cast<double>(stats.wal_pending_events), label);
-                metrics_.set_gauge("minilisysm_network_wal_bytes", static_cast<double>(stats.wal_bytes), label);
-                metrics_.set_counter("minilisysm_network_wal_overflow_dropped_total",
-                                     static_cast<double>(stats.wal_overflow_dropped_events), label);
-            }
-        }
-    }
-    if (config_.metrics_scrape_collectors) {
-        metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(meminfo_failures_.load()),
-                             {{"collector", "meminfo"}});
-        metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(cpu_usage_failures_.load()),
-                             {{"collector", "cpu_usage"}});
-        metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(self_status_failures_.load()),
-                             {{"collector", "self_status"}});
-        metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(sched_delay_failures_.load()),
-                             {{"collector", "sched_delay"}});
-        metrics_.set_counter("minilisysm_collector_failures_total", static_cast<double>(io_delay_failures_.load()),
-                             {{"collector", "io_delay"}});
-        const SchedDelayCollectorRuntimeStats sched_stats = sched_delay_->runtime_stats();
-        metrics_.set_counter("minilisysm_ebpf_ringbuf_drops_total",
-                             static_cast<double>(sched_stats.ebpf_ringbuf_drops));
-        metrics_.set_counter("minilisysm_ebpf_allowlist_exec_seen_total",
-                             static_cast<double>(sched_stats.ebpf_allowlist_exec_seen));
-        metrics_.set_counter("minilisysm_ebpf_allowlist_exit_cleaned_total",
-                             static_cast<double>(sched_stats.ebpf_allowlist_exit_cleaned));
-        metrics_.set_counter("minilisysm_ebpf_allowlist_stale_hits_total",
-                             static_cast<double>(sched_stats.ebpf_allowlist_stale_hits));
-        metrics_.set_counter("minilisysm_ebpf_aggregate_drops_total",
-                             static_cast<double>(sched_stats.ebpf_aggregate_drops));
-        metrics_.set_gauge("minilisysm_ebpf_allowlist_scanned_processes",
-                           static_cast<double>(sched_stats.allowlist_scanned_processes));
-        metrics_.set_gauge("minilisysm_ebpf_allowlist_matched_pids",
-                           static_cast<double>(sched_stats.allowlist_matched_pids));
-        metrics_.set_gauge("minilisysm_ebpf_allowlist_matched_tids",
-                           static_cast<double>(sched_stats.allowlist_matched_tids));
-        metrics_.set_gauge("minilisysm_ebpf_allowlist_refresh_elapsed_ms",
-                           static_cast<double>(sched_stats.allowlist_refresh_elapsed_ms));
-    }
-    return metrics_.render_prometheus();
-}
-
-void Monitor::record_meminfo_metrics(const MeminfoSample& sample) {
-    if (!config_.metrics_scrape_collectors || !sample.valid) {
-        return;
-    }
-    metrics_.set_gauge("minilisysm_system_memory_total_bytes", static_cast<double>(sample.mem_total_kb) * 1024.0);
-    metrics_.set_gauge("minilisysm_system_memory_available_bytes",
-                       static_cast<double>(sample.mem_available_kb) * 1024.0);
-}
-
-void Monitor::record_cpu_usage_metrics(const CpuUsageSample& sample) {
-    if (!config_.metrics_scrape_collectors || !sample.valid) {
-        return;
-    }
-    metrics_.set_gauge("minilisysm_cpu_usage_percent", sample.usage_percent, {{"cpu", sample.cpu}});
-    metrics_.set_gauge("minilisysm_cpu_delta_total_jiffies", static_cast<double>(sample.delta_total_jiffies),
-                       {{"cpu", sample.cpu}});
-    metrics_.set_gauge("minilisysm_cpu_delta_idle_jiffies", static_cast<double>(sample.delta_idle_jiffies),
-                       {{"cpu", sample.cpu}});
-}
-
-void Monitor::record_self_status_metrics(const SelfStatusSample& sample) {
-    if (!config_.metrics_scrape_collectors || !sample.valid) {
-        return;
-    }
-    metrics_.set_gauge("minilisysm_monitor_rss_bytes", static_cast<double>(sample.vm_rss_kb) * 1024.0);
+    const std::vector<std::pair<std::string, SinkStats>> sink_stats = dispatcher_ ? dispatcher_->sink_stats()
+                                                                                  : std::vector<std::pair<std::string, SinkStats>>{};
+    return metrics_.render(running_.load(), next_sequence_.load(), queues, sink_stats, meminfo_failures_.load(),
+                           cpu_usage_failures_.load(), self_status_failures_.load(), sched_delay_failures_.load(),
+                           io_delay_failures_.load(), sched_delay_->runtime_stats());
 }
 
 void Monitor::record_whitelisted_process_metrics() {
-    if (!config_.metrics_scrape_collectors || config_.sched_process_whitelist.empty()) {
+    if (config_.sched_process_whitelist.empty() ||
+        (!config_.metrics_scrape_collectors && !config_.process_memory_enable)) {
         return;
     }
     for (const std::string& name : config_.sched_process_whitelist) {
-        metrics_.set_gauge("minilisysm_whitelisted_process_up", 0.0, {{"process", name}});
+        metrics_.record_whitelisted_process_status(name, false);
     }
     const long clock_ticks = ::sysconf(_SC_CLK_TCK);
     const auto now = std::chrono::steady_clock::now();
-    std::error_code ec;
-    for (const auto& proc : std::filesystem::directory_iterator("/proc", ec)) {
-        if (!proc.is_directory()) continue;
-        const auto sample = read_whitelisted_process_sample(proc.path());
-        if (!sample || std::find(config_.sched_process_whitelist.begin(), config_.sched_process_whitelist.end(),
-                                 sample->name) == config_.sched_process_whitelist.end()) {
-            continue;
+    const detail::WhitelistedProcessScan scan =
+        detail::scan_whitelisted_processes("/proc", config_.sched_process_whitelist);
+    std::unordered_set<int32_t> live_pids(scan.uncertain_pids.begin(), scan.uncertain_pids.end());
+    for (const detail::WhitelistedProcessSample& sample : scan.samples) {
+        live_pids.insert(sample.pid);
+        auto instance = process_instances_.find(sample.pid);
+        if (instance == process_instances_.end()) {
+            process_instances_.emplace(sample.pid, ProcessInstance{sample.name, sample.starttime_ticks});
+        } else if (instance->second.starttime_ticks != sample.starttime_ticks || instance->second.name != sample.name) {
+            fast_rules_->forget_process_memory(instance->second.name, sample.pid);
+            process_cpu_baselines_.erase(sample.pid);
+            process_memory_history_.erase(sample.pid);
+            instance->second = ProcessInstance{sample.name, sample.starttime_ticks};
         }
-        const std::vector<MetricLabel> labels{{"process", sample->name}, {"pid", std::to_string(sample->pid)}};
-        metrics_.set_gauge("minilisysm_whitelisted_process_up", 1.0, {{"process", sample->name}});
-        metrics_.set_gauge("minilisysm_whitelisted_process_rss_bytes", static_cast<double>(sample->rss_bytes), labels);
-        metrics_.set_gauge("minilisysm_whitelisted_process_threads", static_cast<double>(sample->threads), labels);
+
+        metrics_.record_whitelisted_process_status(sample.name, true);
         double cpu_percent = 0.0;
-        const auto previous = process_cpu_baselines_.find(sample->pid);
+        const auto previous = process_cpu_baselines_.find(sample.pid);
         if (previous != process_cpu_baselines_.end() && clock_ticks > 0) {
             const double elapsed = std::chrono::duration<double>(now - previous->second.sampled_at).count();
-            if (elapsed > 0.0 && sample->cpu_ticks >= previous->second.ticks) {
-                cpu_percent = static_cast<double>(sample->cpu_ticks - previous->second.ticks) * 100.0 /
+            if (elapsed > 0.0 && sample.cpu_ticks >= previous->second.ticks) {
+                cpu_percent = static_cast<double>(sample.cpu_ticks - previous->second.ticks) * 100.0 /
                               (static_cast<double>(clock_ticks) * elapsed);
             }
         }
-        process_cpu_baselines_[sample->pid] = ProcessCpuBaseline{sample->cpu_ticks, now};
-        metrics_.set_gauge("minilisysm_whitelisted_process_cpu_usage_percent", cpu_percent, labels);
+        process_cpu_baselines_[sample.pid] = ProcessCpuBaseline{sample.cpu_ticks, now};
+        metrics_.record_whitelisted_process_sample(sample.name, sample.pid, sample.rss_bytes, sample.threads,
+                                                   cpu_percent);
         if (config_.process_memory_enable) {
-            auto& history = process_memory_history_[sample->pid];
-            history.push_back(ProcessMemorySample{now, sample->rss_bytes});
+            auto& history = process_memory_history_[sample.pid];
+            history.push_back(ProcessMemorySample{now, sample.rss_bytes});
             const auto window = std::chrono::seconds(config_.process_memory_growth_window_sec);
             while (history.size() > 1 && now - history[1].sampled_at >= window) {
                 history.pop_front();
             }
             if (history.size() > 1 && now - history.front().sampled_at >= window) {
                 const double growth_mb =
-                    (static_cast<double>(sample->rss_bytes) - static_cast<double>(history.front().rss_bytes)) / 1048576.0;
-                if (auto event = fast_rules_->evaluate_process_memory_growth(sample->name, sample->pid, growth_mb)) {
+                    (static_cast<double>(sample.rss_bytes) - static_cast<double>(history.front().rss_bytes)) / 1048576.0;
+                if (auto event = fast_rules_->evaluate_process_memory_growth(sample.name, sample.pid, growth_mb)) {
                     publish_event(fast_queue_, *event);
                 }
             }
         }
     }
-}
-
-void Monitor::record_sched_delay_metrics(const SchedDelaySample& sample) {
-    if (!config_.metrics_scrape_collectors || !sample.valid) {
-        return;
+    if (scan.complete) {
+        for (auto instance = process_instances_.begin(); instance != process_instances_.end();) {
+            if (live_pids.find(instance->first) == live_pids.end()) {
+                fast_rules_->forget_process_memory(instance->second.name, instance->first);
+                process_cpu_baselines_.erase(instance->first);
+                process_memory_history_.erase(instance->first);
+                instance = process_instances_.erase(instance);
+            } else {
+                ++instance;
+            }
+        }
     }
-    const std::string pid = std::to_string(sample.pid);
-    const std::string tid = std::to_string(sample.tid);
-    metrics_.set_gauge("minilisysm_sched_wait_us", static_cast<double>(sample.delta_wait_sum_us),
-                       {{"pid", pid}, {"tid", tid}});
-    metrics_.set_gauge("minilisysm_sched_involuntary_switches", static_cast<double>(sample.delta_involuntary_switches),
-                       {{"pid", pid}, {"tid", tid}});
-    metrics_.set_gauge("minilisysm_sched_max_wait_us", static_cast<double>(sample.max_wait_us),
-                       {{"pid", pid}, {"tid", tid}});
-    metrics_.set_gauge("minilisysm_sched_avg_wait_us", static_cast<double>(sample.avg_wait_us),
-                       {{"pid", pid}, {"tid", tid}});
-    metrics_.set_gauge("minilisysm_sched_aggregate_count", static_cast<double>(sample.aggregate_count),
-                       {{"pid", pid}, {"tid", tid}});
-}
-
-void Monitor::record_io_delay_metrics(const IoDelaySample& sample) {
-    if (!config_.metrics_scrape_collectors || !sample.valid) {
-        return;
-    }
-    metrics_.set_gauge("minilisysm_io_await_ms", sample.avg_await_ms, {{"device", sample.device}});
-    metrics_.set_gauge("minilisysm_io_util_percent", sample.util_percent, {{"device", sample.device}});
-    metrics_.set_gauge("minilisysm_io_delta_count", static_cast<double>(sample.delta_io_count),
-                       {{"device", sample.device}});
 }
 
 } // namespace lisysm

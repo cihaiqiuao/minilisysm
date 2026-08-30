@@ -29,7 +29,8 @@ class MetricsServer {
     void run();
     bool open_listener();
     void close_listener();
-    void handle_client(int client_fd);
+    void handle_client(int client_fd, const std::string& client_address);
+    bool is_client_allowed(const std::string& client_address) const;
     std::string response_for_request(const std::string& request) const;
 
     const MonitorConfig& config_;

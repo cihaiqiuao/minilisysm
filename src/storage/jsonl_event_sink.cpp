@@ -228,6 +228,8 @@ SinkStats JsonlEventSink::stats() const {
         write_errors_.load(),
         rotated_files_.load(),
         fsync_count_.load(),
+        fsync_failures_.load(),
+        fsync_rate_limited_.load(),
         0,
         0,
         0,
@@ -324,8 +326,10 @@ bool JsonlEventSink::open_next_file() {
     std::ostringstream name;
     name << file_prefix_ << "-part" << std::setw(6) << std::setfill('0') << file_index_ << ".jsonl";
     current_path_ = (jsonl_dir / name.str()).string();
+    const bool file_existed = fs::exists(current_path_);
     stream_.open(current_path_, std::ios::out | std::ios::app | std::ios::binary);
     current_size_ = stream_.is_open() && fs::exists(current_path_) ? fs::file_size(current_path_) : 0;
+    current_file_needs_directory_sync_ = stream_.is_open() && !file_existed;
 
     if (config_.summary_enable) {
         std::ostringstream summary_name;
@@ -437,28 +441,59 @@ void JsonlEventSink::fsync_if_allowed(EventLevel level) {
     if (!config_.critical_fsync || level != EventLevel::Critical) {
         return;
     }
+    stream_.flush();
+    if (!stream_) {
+        fsync_failures_.fetch_add(1);
+        spdlog::warn("failed to flush jsonl event file before fdatasync: path={}", current_path_);
+        return;
+    }
     const uint64_t now = monotonic_ms();
     if (now - fsync_window_start_ms_ >= 60000) {
         fsync_window_start_ms_ = now;
         fsync_in_window_ = 0;
     }
     if (fsync_in_window_ >= config_.max_fsync_per_minute) {
+        fsync_rate_limited_.fetch_add(1);
         return;
     }
-    stream_.flush();
-#if defined(__linux__)
-    int fd = ::open(current_path_.c_str(), O_RDONLY | O_CLOEXEC);
-    if (fd >= 0) {
-        if (::fdatasync(fd) != 0) {
-            spdlog::warn("fdatasync failed for jsonl event file: path={}", current_path_);
-        }
-        ::close(fd);
-    } else {
-        spdlog::warn("failed to open jsonl event file for fdatasync: path={}", current_path_);
-    }
-#endif
     ++fsync_in_window_;
+#if defined(__linux__)
+    const int fd = ::open(current_path_.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        fsync_failures_.fetch_add(1);
+        spdlog::warn("failed to open jsonl event file for fdatasync: path={}", current_path_);
+        return;
+    }
+    const bool file_synced = ::fdatasync(fd) == 0;
+    ::close(fd);
+    if (!file_synced) {
+        fsync_failures_.fetch_add(1);
+        spdlog::warn("fdatasync failed for jsonl event file: path={}", current_path_);
+        return;
+    }
+
+    if (current_file_needs_directory_sync_) {
+        const fs::path parent = fs::path(current_path_).parent_path();
+        const int directory_fd = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (directory_fd < 0) {
+            fsync_failures_.fetch_add(1);
+            spdlog::warn("failed to open jsonl directory for fsync: path={}", parent.string());
+            return;
+        }
+        const bool directory_synced = ::fsync(directory_fd) == 0;
+        ::close(directory_fd);
+        if (!directory_synced) {
+            fsync_failures_.fetch_add(1);
+            spdlog::warn("fsync failed for jsonl directory: path={}", parent.string());
+            return;
+        }
+        current_file_needs_directory_sync_ = false;
+    }
     fsync_count_.fetch_add(1);
+#else
+    fsync_failures_.fetch_add(1);
+    spdlog::warn("durable jsonl sync is unsupported on this platform: path={}", current_path_);
+#endif
 }
 
 void JsonlEventSink::enforce_cache_limit() {

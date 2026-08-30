@@ -2,6 +2,7 @@
 
 #include "minilisysm/core/config.hpp"
 #include "minilisysm/core/event.hpp"
+#include "minilisysm/core/time.hpp"
 #include "minilisysm/collectors/cpu_usage_collector.hpp"
 #include "minilisysm/collectors/io_delay_collector.hpp"
 #include "minilisysm/collectors/meminfo_collector.hpp"
@@ -75,12 +76,16 @@ struct RuleContext {
     uint64_t total_hit_count{0};
     uint64_t first_seen_ms{0};
     uint64_t last_seen_ms{0};
+    uint64_t last_activation_event_ms{0};
+    bool notification_active{false};
     double max_value{0.0};
 };
 
 class RuleEngine {
   public:
-    explicit RuleEngine(const MonitorConfig& config);
+    using Clock = uint64_t (*)();
+
+    explicit RuleEngine(const MonitorConfig& config, Clock clock = monotonic_ms);
     std::optional<InternalEvent> evaluate_memory(const MeminfoSample& sample);
     std::optional<InternalEvent> evaluate_self_rss(uint64_t rss_kb);
     std::optional<InternalEvent> evaluate_cpu_usage(const CpuUsageSample& sample);
@@ -89,6 +94,7 @@ class RuleEngine {
     std::optional<InternalEvent> evaluate_io_delay(const IoDelaySample& sample);
     std::optional<InternalEvent> evaluate_process_memory_growth(const std::string& name, int32_t pid,
                                                                  double growth_mb);
+    void forget_process_memory(const std::string& name, int32_t pid);
 
   private:
     InternalEvent make_memory_event(EventLevel level, EventStatus status, double value_mb) const;
@@ -107,8 +113,11 @@ class RuleEngine {
                                                  double value, bool external_warning_trigger,
                                                  bool external_critical_trigger, bool external_recovery_blocked);
     bool recovered(const ThresholdRuleDefinition& definition, double value, bool extra_recovery_condition) const;
+    void prune_expired_contexts(uint64_t now_ms);
+    bool cooldown_active(const RuleContext& context, uint64_t now_ms) const;
 
     const MonitorConfig& config_;
+    Clock clock_;
     RuleContext memory_;
     RuleContext self_rss_;
     std::unordered_map<std::string, RuleContext> cpu_usage_;

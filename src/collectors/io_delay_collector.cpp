@@ -17,8 +17,8 @@ bool starts_with(const std::string& value, const char* prefix) {
 
 } // namespace
 
-IoDelayCollector::IoDelayCollector(const MonitorConfig& config, std::string diskstats_path)
-    : config_(config), diskstats_path_(std::move(diskstats_path)) {}
+IoDelayCollector::IoDelayCollector(const MonitorConfig& config, std::string diskstats_path, Clock clock)
+    : config_(config), diskstats_path_(std::move(diskstats_path)), clock_(clock ? clock : monotonic_ms) {}
 
 std::vector<IoDelaySample> IoDelayCollector::collect() {
     last_failure_count_ = 0;
@@ -31,6 +31,13 @@ std::vector<IoDelaySample> IoDelayCollector::collect() {
         ++last_failure_count_;
         return {};
     }
+
+    const uint64_t now_ms = clock_();
+    for (const auto& [device, stats] : current) {
+        (void)stats;
+        baseline_last_seen_ms_[device] = now_ms;
+    }
+    prune_baselines(now_ms);
 
     std::vector<IoDelaySample> samples;
     samples.reserve(std::min<size_t>(current.size(), config_.io_max_targets));
@@ -79,6 +86,19 @@ std::vector<IoDelaySample> IoDelayCollector::collect() {
     return samples;
 }
 
+void IoDelayCollector::prune_baselines(uint64_t now_ms) {
+    const uint64_t ttl_sec = config_.state_ttl_sec == 0 ? 3600 : config_.state_ttl_sec;
+    const uint64_t ttl_ms = ttl_sec * 1000ULL;
+    for (auto it = baseline_last_seen_ms_.begin(); it != baseline_last_seen_ms_.end();) {
+        if (now_ms - it->second >= ttl_ms) {
+            baselines_.erase(it->first);
+            it = baseline_last_seen_ms_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 bool IoDelayCollector::should_scan_device(const std::string& device) const {
     if (!config_.io_device_whitelist.empty()) {
         return contains_name(config_.io_device_whitelist, device);
@@ -98,7 +118,7 @@ std::unordered_map<std::string, IoDelayCollector::DiskStats> IoDelayCollector::r
 
     std::unordered_map<std::string, DiskStats> devices;
     std::string line;
-    const uint64_t now = monotonic_ms();
+    const uint64_t now = clock_();
     while (std::getline(input, line)) {
         std::istringstream stream(line);
         uint32_t major = 0;

@@ -59,8 +59,11 @@ class JsonlEventSink : public EventSink {
     mutable std::atomic<uint64_t> write_errors_{0};
     mutable std::atomic<uint64_t> rotated_files_{0};
     mutable std::atomic<uint64_t> fsync_count_{0};
+    mutable std::atomic<uint64_t> fsync_failures_{0};
+    mutable std::atomic<uint64_t> fsync_rate_limited_{0};
     uint64_t fsync_window_start_ms_{0};
     uint32_t fsync_in_window_{0};
+    bool current_file_needs_directory_sync_{false};
 };
 
 } // namespace lisysm

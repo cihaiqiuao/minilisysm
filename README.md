@@ -15,8 +15,9 @@
 | 监控器自身 | `/proc/self/status` | RSS 自保护 |
 | 白名单进程 | `/proc/<pid>` | 在线状态、CPU、RSS、线程数 |
 | 调度等待 | `/proc/.../sched` 或可选 eBPF | 调度延迟趋势与事件 |
+| 硬件健康 | sysfs 与 EDAC | 电池、存储寿命和 ECC 状态 |
 
-事件默认写入 JSONL 与可读摘要日志；指标默认仅绑定到本机 `127.0.0.1:9108`。
+事件默认写入 JSONL 与可读摘要日志。Metrics 服务默认监听 `0.0.0.0:9108`，方便可信局域网内调试；它不内置认证或 TLS，不应直接暴露到公网。
 
 ## 快速开始
 
@@ -67,6 +68,25 @@ curl -s http://127.0.0.1:9108/metrics
 ```
 
 安装后的 `install/bin/qalog` 在 `PATH` 中时可直接运行 `qalog`。
+
+也可以用浏览器打开轻量状态页：
+
+```text
+http://127.0.0.1:9108/status
+http://<设备IP>:9108/status
+```
+
+状态页每 2 秒读取同一服务的 `/metrics`，展示 Agent、CPU、内存、队列、collector、sink 和硬件健康。硬件数据来自 Linux 通用节点：电池读取 `/sys/class/power_supply`，存储寿命读取 `/sys/block/*/device/life_time` 与 `pre_eol_info`，内存健康读取 EDAC ECC 计数。节点不存在时显示暂无，不额外报警。
+
+需要限制 HTTP 客户端时，可配置精确 IPv4 白名单：
+
+```ini
+[metrics]
+bind_host=0.0.0.0
+allowed_clients=127.0.0.1,192.168.2.100
+```
+
+`allowed_clients` 为空时保留局域网访问；非法地址会使 MetricsServer 启动失败。该设置只是应用层过滤，不能替代防火墙、VPN 或 TLS。
 
 ## 监控业务进程
 
@@ -127,8 +147,13 @@ growth_window_sec=600
 fast_collect_interval_ms=1000
 
 [metrics]
-bind_host=127.0.0.1
+bind_host=0.0.0.0
 port=9108
+allowed_clients=
+
+[rule_runtime]
+cooldown_sec=60
+state_ttl_sec=3600
 
 [memory_rule]
 mem_available_warning_mb=512
@@ -156,6 +181,30 @@ logs/events/jsonl/           机器可读事件
 logs/events/summary/         人工排查摘要
 logs/wal/                    网络 sink 的待发送数据
 ```
+
+Agent 日志使用 `spdlog` 异步写入，默认同时输出到控制台和 `./logs/agent/minilisysm-agent.log`，按大小滚动：
+
+```ini
+[agent_log]
+enable=true
+level=info
+console=true
+path=./logs/agent/minilisysm-agent.log
+rotation=size
+rotate_mb=16
+rotate_files=8
+async_queue_size=8192
+```
+
+将 `rotation` 改为 `daily` 可按天滚动。
+
+### 运行时可靠性
+
+- 告警冷却按规则和目标分别计算；Critical 升级不受冷却限制，只有已实际发布过激活事件的状态才会发布恢复事件。
+- CPU、I/O 和调度规则上下文及 collector 基线会按 `state_ttl_sec` 清理，避免目标长期消失后状态无限增长。
+- Monitor 与 dispatcher 的启停生命周期已串行化，重复停止幂等；采集周期等待可被停止请求立即唤醒，默认 10 秒低频周期不会拖住内部退出。
+- Critical JSONL 事件总会先 flush；`fdatasync` 仍受 `max_fsync_per_minute` 限制，并分别统计成功、失败和限流。
+- 网络 sink 默认关闭；启用后以 segment WAL 保存待发送事件，压缩时先发布新代再清理旧代，代际切换失败时保留旧数据，恢复语义偏向可能重复投递的 at-least-once。
 
 ## systemd 部署
 

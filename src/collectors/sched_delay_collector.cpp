@@ -58,12 +58,14 @@ uint64_t key_for(int32_t pid, int32_t tid) {
 
 } // namespace
 
-SchedDelayCollector::SchedDelayCollector(const MonitorConfig& config, std::string proc_dir)
-    : config_(config), proc_dir_(std::move(proc_dir)) {}
+SchedDelayCollector::SchedDelayCollector(const MonitorConfig& config, std::string proc_dir, Clock clock)
+    : config_(config), proc_dir_(std::move(proc_dir)), clock_(clock ? clock : monotonic_ms) {}
 
 std::vector<SchedDelaySample> SchedDelayCollector::collect() {
     const auto collect_start = std::chrono::steady_clock::now();
     std::vector<SchedDelaySample> samples;
+    const uint64_t now_ms = clock_();
+    prune_expired_state(now_ms);
     last_failure_count_ = 0;
     if (!config_.sched_delay_enable) {
         return samples;
@@ -148,13 +150,13 @@ std::vector<SchedDelaySample> SchedDelayCollector::collect() {
             const auto it = baselines_.find(key);
             if (it == baselines_.end() || wait_sum_us < it->second.wait_sum_us ||
                 involuntary_switches < it->second.involuntary_switches) {
-                baselines_[key] = Baseline{wait_sum_us, involuntary_switches};
+                baselines_[key] = Baseline{wait_sum_us, involuntary_switches, now_ms};
                 continue;
             }
 
             const uint64_t prev_wait_sum = it->second.wait_sum_us;
             const uint64_t prev_switches = it->second.involuntary_switches;
-            baselines_[key] = Baseline{wait_sum_us, involuntary_switches};
+            baselines_[key] = Baseline{wait_sum_us, involuntary_switches, now_ms};
 
             SchedDelaySample sample;
             sample.pid = pid;
@@ -210,6 +212,7 @@ bool SchedDelayCollector::cached_comm(uint64_t key, const std::string& path,
     const auto refresh = std::chrono::milliseconds(config_.sched_proc_cache_refresh_ms);
     const auto it = cache.find(key);
     if (it != cache.end() && now - it->second.refreshed_at < refresh) {
+        it->second.last_seen_ms = clock_();
         *comm = it->second.comm;
         return true;
     }
@@ -218,9 +221,26 @@ bool SchedDelayCollector::cached_comm(uint64_t key, const std::string& path,
         cache.erase(key);
         return false;
     }
-    cache[key] = CommCacheEntry{refreshed, now};
+    cache[key] = CommCacheEntry{refreshed, now, clock_()};
     *comm = std::move(refreshed);
     return true;
+}
+
+void SchedDelayCollector::prune_expired_state(uint64_t now_ms) {
+    const uint64_t ttl_sec = config_.state_ttl_sec == 0 ? 3600 : config_.state_ttl_sec;
+    const uint64_t ttl_ms = ttl_sec * 1000ULL;
+    const auto erase_expired = [now_ms, ttl_ms](auto& map) {
+        for (auto it = map.begin(); it != map.end();) {
+            if (it->second.last_seen_ms != 0 && now_ms - it->second.last_seen_ms >= ttl_ms) {
+                it = map.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+    erase_expired(baselines_);
+    erase_expired(process_comm_cache_);
+    erase_expired(thread_comm_cache_);
 }
 
 bool SchedDelayCollector::read_comm(const std::string& path, std::string* comm) const {

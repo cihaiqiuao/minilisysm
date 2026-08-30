@@ -23,5 +23,13 @@ int main() {
     CHECK(text.find("minilisysm_test_gauge{device=\"sda\"} 7") != std::string::npos);
     CHECK(text.find("# TYPE minilisysm_test_total counter") != std::string::npos);
     CHECK(text.find("minilisysm_test_total{type=\"a\\\"b\"} 3") != std::string::npos);
+
+    registry.set_gauge_family("minilisysm_sched_wait_us",
+                              {{10.0, {{"pid", "1"}, {"tid", "1"}}}, {20.0, {{"pid", "2"}, {"tid", "2"}}}});
+    registry.set_gauge_family("minilisysm_sched_wait_us", {{30.0, {{"pid", "2"}, {"tid", "2"}}}});
+
+    const std::string refreshed = registry.render_prometheus();
+    CHECK(refreshed.find("minilisysm_sched_wait_us{pid=\"1\",tid=\"1\"}") == std::string::npos);
+    CHECK(refreshed.find("minilisysm_sched_wait_us{pid=\"2\",tid=\"2\"} 30") != std::string::npos);
     return EXIT_SUCCESS;
 }

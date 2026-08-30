@@ -35,6 +35,24 @@ void MetricRegistry::set_gauge(const std::string& name, double value, std::vecto
     set_locked(name, MetricKind::Gauge, value, std::move(labels), false);
 }
 
+void MetricRegistry::set_gauge_family(const std::string& name, std::vector<MetricSample> samples) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const std::string family_prefix = name + "|";
+    for (auto it = values_.begin(); it != values_.end();) {
+        if (it->first == name || it->first.rfind(family_prefix, 0) == 0) {
+            it = values_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (MetricSample& sample : samples) {
+        MetricValue& metric = values_[key_for(name, sample.labels)];
+        metric.kind = MetricKind::Gauge;
+        metric.labels = std::move(sample.labels);
+        metric.value = sample.value;
+    }
+}
+
 void MetricRegistry::inc_counter(const std::string& name, double delta, std::vector<MetricLabel> labels) {
     set_locked(name, MetricKind::Counter, delta, std::move(labels), true);
 }

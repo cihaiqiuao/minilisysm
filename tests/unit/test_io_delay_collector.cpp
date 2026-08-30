@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 #include <cmath>
+#include <cstdint>
 
 #define CHECK(condition)                                                                                               \
     do {                                                                                                               \
@@ -21,6 +22,16 @@ void write_file(const std::string& path, const std::string& content) {
     std::ofstream os(path);
     os << content;
 }
+
+namespace {
+
+uint64_t test_now_ms = 0;
+
+uint64_t test_clock() {
+    return test_now_ms;
+}
+
+}  // namespace
 
 int main() {
     const std::string test_file = "/tmp/mock_diskstats";
@@ -92,6 +103,27 @@ int main() {
     lisysm::IoDelayCollector not_found_collector(config, "/tmp/non_existent_mock_diskstats");
     CHECK(not_found_collector.collect().empty());
     CHECK(not_found_collector.last_failure_count() > 0);
+
+    lisysm::MonitorConfig ttl_config = config;
+    ttl_config.state_ttl_sec = 1;
+    test_now_ms = 1'000;
+    write_file(test_file,
+               "   8       0 sda 100 0 1000 500 200 0 2000 1000 0 1500 1500\n"
+               " 259       0 nvme0n1 200 0 2000 1000 300 0 3000 1500 0 2500 2500\n");
+    lisysm::IoDelayCollector ttl_collector(ttl_config, test_file, test_clock);
+    CHECK(ttl_collector.collect().empty());
+
+    test_now_ms = 2'500;
+    write_file(test_file, "   8       0 sda 110 0 1100 520 210 0 2100 1020 1 1510 1530\n");
+    CHECK(ttl_collector.collect().size() == 1);
+
+    test_now_ms = 2'600;
+    write_file(test_file,
+               "   8       0 sda 120 0 1200 540 220 0 2200 1040 1 1520 1560\n"
+               " 259       0 nvme0n1 220 0 2200 1020 320 0 3200 1520 0 2520 2520\n");
+    const std::vector<lisysm::IoDelaySample> ttl_samples = ttl_collector.collect();
+    CHECK(ttl_samples.size() == 1);
+    CHECK(ttl_samples[0].device == "sda");
 
     // Cleanup
     std::remove(test_file.c_str());

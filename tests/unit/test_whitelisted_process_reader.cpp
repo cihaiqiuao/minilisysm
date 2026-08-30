@@ -75,8 +75,7 @@ int main() {
     size_t details_calls = 0;
     std::vector<fs::path> details_paths;
     auto result = lisysm::detail::scan_whitelisted_processes(
-        temp_directory.path(), {"target"},
-        [&](const fs::path& process_path, int32_t pid, std::string name) {
+        temp_directory.path(), {"target"}, [&](const fs::path& process_path, int32_t pid, std::string name) {
             ++details_calls;
             details_paths.push_back(process_path);
             return lisysm::detail::read_whitelisted_process_details(process_path, pid, std::move(name));
@@ -98,7 +97,7 @@ int main() {
 
     auto incomplete = lisysm::detail::scan_whitelisted_processes(
         temp_directory.path(), {"target"},
-        [](const fs::path&, int32_t, std::string) -> std::optional<lisysm::detail::WhitelistedProcessSample> {
+        [](const fs::path&, int32_t, const std::string&) -> std::optional<lisysm::detail::WhitelistedProcessSample> {
             return std::nullopt;
         });
     CHECK(incomplete.samples.empty());
@@ -108,8 +107,7 @@ int main() {
 
     const fs::path missing_comm = temp_directory.path() / "303";
     CHECK(fs::create_directories(missing_comm));
-    auto missing_comm_scan =
-        lisysm::detail::scan_whitelisted_processes(temp_directory.path(), {"target"});
+    auto missing_comm_scan = lisysm::detail::scan_whitelisted_processes(temp_directory.path(), {"target"});
     CHECK(missing_comm_scan.complete);
     CHECK(missing_comm_scan.uncertain_pids.size() == 1);
     CHECK(missing_comm_scan.uncertain_pids.front() == 303);
@@ -117,8 +115,7 @@ int main() {
 
     const fs::path invalid_pid_entry = temp_directory.path() / "404";
     CHECK(write_file(invalid_pid_entry, "not a directory\n"));
-    auto invalid_pid_scan =
-        lisysm::detail::scan_whitelisted_processes(temp_directory.path(), {"target"});
+    auto invalid_pid_scan = lisysm::detail::scan_whitelisted_processes(temp_directory.path(), {"target"});
     CHECK(invalid_pid_scan.complete);
     CHECK(invalid_pid_scan.uncertain_pids.size() == 1);
     CHECK(invalid_pid_scan.uncertain_pids.front() == 404);
@@ -136,8 +133,7 @@ int main() {
     CHECK(fs::create_directories(missing_status_process / "task" / "606"));
     CHECK(write_file(missing_status_process / "stat",
                      "606 (missing-status) S 1 2 3 4 5 6 7 8 9 10 1 1 14 15 16 17 1 19 6060\n"));
-    CHECK(!lisysm::detail::read_whitelisted_process_details(missing_status_process, 606, "missing-status")
-               .has_value());
+    CHECK(!lisysm::detail::read_whitelisted_process_details(missing_status_process, 606, "missing-status").has_value());
 
     const fs::path unreadable_task_process = temp_directory.path() / "707";
     CHECK(fs::create_directories(unreadable_task_process));
@@ -145,27 +141,24 @@ int main() {
     CHECK(write_file(unreadable_task_process / "stat",
                      "707 (unreadable-task) S 1 2 3 4 5 6 7 8 9 10 1 1 14 15 16 17 1 19 7070\n"));
     CHECK(write_file(unreadable_task_process / "status", "Name:\tunreadable-task\nVmRSS:\t1 kB\n"));
-    CHECK(!lisysm::detail::read_whitelisted_process_details(unreadable_task_process, 707, "unreadable-task")
-               .has_value());
+    CHECK(
+        !lisysm::detail::read_whitelisted_process_details(unreadable_task_process, 707, "unreadable-task").has_value());
 
     const fs::path missing_rss_process = temp_directory.path() / "808";
     CHECK(fs::create_directories(missing_rss_process / "task" / "808"));
     CHECK(write_file(missing_rss_process / "stat",
                      "808 (missing-rss) S 1 2 3 4 5 6 7 8 9 10 1 1 14 15 16 17 1 19 8080\n"));
     CHECK(write_file(missing_rss_process / "status", "Name:\tmissing-rss\n"));
-    CHECK(!lisysm::detail::read_whitelisted_process_details(missing_rss_process, 808, "missing-rss")
-               .has_value());
+    CHECK(!lisysm::detail::read_whitelisted_process_details(missing_rss_process, 808, "missing-rss").has_value());
 
     const fs::path malformed_rss_process = temp_directory.path() / "909";
     CHECK(fs::create_directories(malformed_rss_process / "task" / "909"));
     CHECK(write_file(malformed_rss_process / "stat",
                      "909 (malformed-rss) S 1 2 3 4 5 6 7 8 9 10 1 1 14 15 16 17 1 19 9090\n"));
     CHECK(write_file(malformed_rss_process / "status", "Name:\tmalformed-rss\nVmRSS:\tnot-a-number kB\n"));
-    CHECK(!lisysm::detail::read_whitelisted_process_details(malformed_rss_process, 909, "malformed-rss")
-               .has_value());
+    CHECK(!lisysm::detail::read_whitelisted_process_details(malformed_rss_process, 909, "malformed-rss").has_value());
 
-    auto missing_root = lisysm::detail::scan_whitelisted_processes(
-        temp_directory.path() / "missing", {"target"});
+    auto missing_root = lisysm::detail::scan_whitelisted_processes(temp_directory.path() / "missing", {"target"});
     CHECK(!missing_root.complete);
     return EXIT_SUCCESS;
 }

@@ -59,7 +59,7 @@ uint64_t key_for(int32_t pid, int32_t tid) {
 } // namespace
 
 SchedDelayCollector::SchedDelayCollector(const MonitorConfig& config, std::string proc_dir, Clock clock)
-    : config_(config), proc_dir_(std::move(proc_dir)), clock_(clock ? clock : monotonic_ms) {}
+    : config_(config), proc_dir_(std::move(proc_dir)), clock_(clock != nullptr ? clock : monotonic_ms) {}
 
 std::vector<SchedDelaySample> SchedDelayCollector::collect() {
     const auto collect_start = std::chrono::steady_clock::now();

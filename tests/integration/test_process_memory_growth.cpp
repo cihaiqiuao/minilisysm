@@ -136,8 +136,7 @@ class MemoryGrowthHelper {
     }
 
     bool grow() {
-        return write_byte(command_fd_, 'G') &&
-               read_byte_with_timeout(status_fd_, 'G', std::chrono::seconds(2));
+        return write_byte(command_fd_, 'G') && read_byte_with_timeout(status_fd_, 'G', std::chrono::seconds(2));
     }
 
     pid_t pid() const {

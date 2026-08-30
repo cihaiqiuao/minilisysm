@@ -66,9 +66,8 @@ int main() {
     CHECK(sample.memory.ecc_corrected_errors == 7);
     CHECK(sample.memory.ecc_uncorrected_errors == 1);
 
-    const lisysm::HardwareHealthCollector empty_collector((root / "missing_power").string(),
-                                                          (root / "missing_block").string(),
-                                                          (root / "missing_edac").string());
+    const lisysm::HardwareHealthCollector empty_collector(
+        (root / "missing_power").string(), (root / "missing_block").string(), (root / "missing_edac").string());
     const lisysm::HardwareHealthSample empty = empty_collector.collect();
     CHECK(empty.batteries.empty());
     CHECK(empty.storage_devices.empty());

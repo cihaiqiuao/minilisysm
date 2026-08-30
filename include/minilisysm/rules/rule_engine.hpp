@@ -92,8 +92,7 @@ class RuleEngine {
     std::optional<InternalEvent> evaluate_queue(const QueueSnapshot& snapshot);
     std::optional<InternalEvent> evaluate_sched_delay(const SchedDelaySample& sample);
     std::optional<InternalEvent> evaluate_io_delay(const IoDelaySample& sample);
-    std::optional<InternalEvent> evaluate_process_memory_growth(const std::string& name, int32_t pid,
-                                                                 double growth_mb);
+    std::optional<InternalEvent> evaluate_process_memory_growth(const std::string& name, int32_t pid, double growth_mb);
     void forget_process_memory(const std::string& name, int32_t pid);
 
   private:
@@ -107,8 +106,8 @@ class RuleEngine {
                                          double wait_sum_us, const RuleContext& context) const;
     InternalEvent make_io_delay_event(const IoDelaySample& sample, EventLevel level, EventStatus status,
                                       double await_ms, const RuleContext& context) const;
-    InternalEvent make_process_memory_event(const std::string& name, int32_t pid, EventLevel level,
-                                            EventStatus status, double growth_mb, const RuleContext& context) const;
+    InternalEvent make_process_memory_event(const std::string& name, int32_t pid, EventLevel level, EventStatus status,
+                                            double growth_mb, const RuleContext& context) const;
     std::optional<EventLevel> evaluate_threshold(RuleContext& context, const ThresholdRuleDefinition& definition,
                                                  double value, bool external_warning_trigger,
                                                  bool external_critical_trigger, bool external_recovery_blocked);

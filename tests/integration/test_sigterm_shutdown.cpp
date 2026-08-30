@@ -94,7 +94,7 @@ class ChildProcess {
             return false;
         }
         reaped_ = true;
-        if (status) {
+        if (status != nullptr) {
             *status = current_status;
         }
         return true;
@@ -262,8 +262,7 @@ int main(int argc, char** argv) {
     }
     CHECK(exited);
     if (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0) {
-        std::cerr << "agent shutdown failed: " << describe_status(child_status) << "\n"
-                  << read_text(console_log_path);
+        std::cerr << "agent shutdown failed: " << describe_status(child_status) << "\n" << read_text(console_log_path);
         return EXIT_FAILURE;
     }
 

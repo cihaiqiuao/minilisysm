@@ -30,8 +30,7 @@ void MonitorMetrics::record_event(const InternalEvent& event) {
 }
 
 void MonitorMetrics::record_collector_elapsed(const char* collector, uint64_t elapsed_ms) {
-    registry_.set_gauge("minilisysm_collector_elapsed_ms", static_cast<double>(elapsed_ms),
-                        {{"collector", collector}});
+    registry_.set_gauge("minilisysm_collector_elapsed_ms", static_cast<double>(elapsed_ms), {{"collector", collector}});
 }
 
 void MonitorMetrics::record_collector_overrun(const char* collector) {
@@ -129,7 +128,7 @@ void MonitorMetrics::record_whitelisted_process_status(const std::string& proces
 }
 
 void MonitorMetrics::record_whitelisted_process_sample(const std::string& process, int pid, uint64_t rss_bytes,
-                                                        uint64_t threads, double cpu_percent) {
+                                                       uint64_t threads, double cpu_percent) {
     if (!config_.metrics_scrape_collectors) {
         return;
     }
@@ -217,8 +216,8 @@ std::string MonitorMetrics::render(bool running, uint64_t next_sequence, const Q
             registry_.set_counter("minilisysm_network_send_errors_total", static_cast<double>(stats.send_errors),
                                   label);
             registry_.set_counter("minilisysm_network_retries_total", static_cast<double>(stats.retry_count), label);
-            registry_.set_gauge("minilisysm_network_wal_pending_events",
-                                static_cast<double>(stats.wal_pending_events), label);
+            registry_.set_gauge("minilisysm_network_wal_pending_events", static_cast<double>(stats.wal_pending_events),
+                                label);
             registry_.set_gauge("minilisysm_network_wal_bytes", static_cast<double>(stats.wal_bytes), label);
             registry_.set_counter("minilisysm_network_wal_overflow_dropped_total",
                                   static_cast<double>(stats.wal_overflow_dropped_events), label);

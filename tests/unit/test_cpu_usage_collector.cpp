@@ -30,7 +30,7 @@ uint64_t test_clock() {
     return test_now_ms;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     const std::string test_file = "/tmp/mock_proc_stat";

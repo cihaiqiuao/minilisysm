@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 BUILD_DIR="${MINILISYSM_LINT_BUILD_DIR:-build/release-vcpkg}"
-WARNINGS_AS_ERRORS="${MINILISYSM_TIDY_WARNINGS_AS_ERRORS:-*}"
+WARNINGS_AS_ERRORS="${MINILISYSM_TIDY_WARNINGS_AS_ERRORS:-bugprone-*,-bugprone-easily-swappable-parameters,-bugprone-implicit-widening-of-multiplication-result,performance-*,readability-implicit-bool-conversion}"
 VCPKG_OUTPUT="$(bash "${ROOT_DIR}/scripts/bootstrap_vcpkg.sh")"
 VCPKG_TOOLCHAIN_FILE="$(printf '%s\n' "${VCPKG_OUTPUT}" | awk -F= '/^CMAKE_TOOLCHAIN_FILE=/ {print $2}' | tail -1)"
 

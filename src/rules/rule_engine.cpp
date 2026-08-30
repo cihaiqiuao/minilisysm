@@ -21,8 +21,8 @@ void set_event_target(InternalEvent& event, const std::string& target) {
     event.target[kEventTargetSize - 1] = '\0';
 }
 
-uint32_t event_window_sec(EventLevel level, uint32_t interval_ms, uint32_t warning_windows,
-                          uint32_t critical_windows, uint32_t recovery_windows) {
+uint32_t event_window_sec(EventLevel level, uint32_t interval_ms, uint32_t warning_windows, uint32_t critical_windows,
+                          uint32_t recovery_windows) {
     uint32_t windows = warning_windows;
     if (level == EventLevel::Critical) {
         windows = critical_windows;
@@ -34,7 +34,8 @@ uint32_t event_window_sec(EventLevel level, uint32_t interval_ms, uint32_t warni
 
 } // namespace
 
-RuleEngine::RuleEngine(const MonitorConfig& config, Clock clock) : config_(config), clock_(clock ? clock : monotonic_ms) {
+RuleEngine::RuleEngine(const MonitorConfig& config, Clock clock)
+    : config_(config), clock_(clock != nullptr ? clock : monotonic_ms) {
     if (!config_.memory_rule_enable) {
         memory_.state = RuleState::Disabled;
     }
@@ -387,10 +388,8 @@ InternalEvent RuleEngine::make_memory_event(EventLevel level, EventStatus status
     event.value = value_mb;
     event.warning_threshold = static_cast<double>(config_.mem_available_warning_mb);
     event.critical_threshold = static_cast<double>(config_.mem_available_critical_mb);
-    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
-                                        config_.continuous_warning_windows,
-                                        config_.continuous_critical_windows,
-                                        config_.recovery_windows);
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms, config_.continuous_warning_windows,
+                                        config_.continuous_critical_windows, config_.recovery_windows);
     event.continuous_hit_count = memory_.hit_count;
     event.hit_count = memory_.total_hit_count;
     event.evidence_count = 2;
@@ -410,10 +409,8 @@ InternalEvent RuleEngine::make_self_rss_event(EventLevel level, EventStatus stat
     event.value = rss_mb;
     event.warning_threshold = static_cast<double>(config_.self_rss_soft_limit_mb);
     event.critical_threshold = static_cast<double>(config_.self_rss_hard_limit_mb);
-    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
-                                        config_.continuous_warning_windows,
-                                        config_.continuous_critical_windows,
-                                        config_.self_recovery_windows);
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms, config_.continuous_warning_windows,
+                                        config_.continuous_critical_windows, config_.self_recovery_windows);
     event.continuous_hit_count = self_rss_.hit_count;
     event.hit_count = self_rss_.total_hit_count;
     event.evidence_count = 2;
@@ -435,10 +432,9 @@ InternalEvent RuleEngine::make_cpu_usage_event(EventLevel level, EventStatus sta
     event.value = sample.usage_percent;
     event.warning_threshold = config_.cpu_usage_warning_percent;
     event.critical_threshold = config_.cpu_usage_critical_percent;
-    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
-                                        config_.cpu_usage_continuous_warning_windows,
-                                        config_.cpu_usage_continuous_critical_windows,
-                                        config_.cpu_usage_recovery_windows);
+    event.window_sec =
+        event_window_sec(level, config_.fast_collect_interval_ms, config_.cpu_usage_continuous_warning_windows,
+                         config_.cpu_usage_continuous_critical_windows, config_.cpu_usage_recovery_windows);
     event.continuous_hit_count = context.hit_count;
     event.hit_count = context.total_hit_count;
     event.evidence_count = 4;
@@ -454,8 +450,8 @@ InternalEvent RuleEngine::make_cpu_usage_event(EventLevel level, EventStatus sta
 }
 
 InternalEvent RuleEngine::make_process_memory_event(const std::string& name, int32_t pid, EventLevel level,
-                                                     EventStatus status, double growth_mb,
-                                                     const RuleContext& context) const {
+                                                    EventStatus status, double growth_mb,
+                                                    const RuleContext& context) const {
     InternalEvent event;
     event.rule_id = static_cast<uint32_t>(RuleId::WhitelistedProcessMemory);
     event.event_type = EventType::WhitelistedProcessMemoryRisk;
@@ -487,10 +483,8 @@ InternalEvent RuleEngine::make_queue_event(EventLevel level, EventStatus status,
     event.value = queue_percent;
     event.warning_threshold = static_cast<double>(config_.queue_warning_percent);
     event.critical_threshold = static_cast<double>(config_.queue_critical_percent);
-    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms,
-                                        config_.continuous_warning_windows,
-                                        config_.continuous_critical_windows,
-                                        config_.self_recovery_windows);
+    event.window_sec = event_window_sec(level, config_.fast_collect_interval_ms, config_.continuous_warning_windows,
+                                        config_.continuous_critical_windows, config_.self_recovery_windows);
     event.continuous_hit_count = queue_.hit_count;
     event.hit_count = queue_.total_hit_count;
     event.evidence_count = 6;
@@ -535,10 +529,9 @@ InternalEvent RuleEngine::make_sched_delay_event(const SchedDelaySample& sample,
     event.value = wait_sum_us;
     event.warning_threshold = static_cast<double>(config_.sched_wait_sum_warning_us);
     event.critical_threshold = static_cast<double>(config_.sched_wait_sum_critical_us);
-    event.window_sec = event_window_sec(level, config_.low_freq_collect_interval_ms,
-                                        config_.sched_continuous_warning_windows,
-                                        config_.sched_continuous_critical_windows,
-                                        config_.sched_recovery_windows);
+    event.window_sec =
+        event_window_sec(level, config_.low_freq_collect_interval_ms, config_.sched_continuous_warning_windows,
+                         config_.sched_continuous_critical_windows, config_.sched_recovery_windows);
     event.continuous_hit_count = context.hit_count;
     event.hit_count = context.total_hit_count;
     event.evidence_count = 6;
@@ -568,10 +561,9 @@ InternalEvent RuleEngine::make_io_delay_event(const IoDelaySample& sample, Event
     event.value = await_ms;
     event.warning_threshold = config_.io_await_warning_ms;
     event.critical_threshold = config_.io_await_critical_ms;
-    event.window_sec = event_window_sec(level, config_.low_freq_collect_interval_ms,
-                                        config_.io_continuous_warning_windows,
-                                        config_.io_continuous_critical_windows,
-                                        config_.io_recovery_windows);
+    event.window_sec =
+        event_window_sec(level, config_.low_freq_collect_interval_ms, config_.io_continuous_warning_windows,
+                         config_.io_continuous_critical_windows, config_.io_recovery_windows);
     event.continuous_hit_count = context.hit_count;
     event.hit_count = context.total_hit_count;
     event.evidence_count = 5;

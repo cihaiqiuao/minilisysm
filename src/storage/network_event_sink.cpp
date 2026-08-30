@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <sstream>
 
 #if defined(__linux__)
@@ -59,6 +60,19 @@ fs::path wal_path_for_index(const fs::path& directory, uint64_t index) {
     std::ostringstream name;
     name << "events_" << std::setw(6) << std::setfill('0') << index << ".wal";
     return directory / name.str();
+}
+
+std::optional<uint64_t> wal_index_from_path(const fs::path& path) {
+    const std::string stem = path.stem().string();
+    const size_t underscore = stem.find_last_of('_');
+    if (underscore == std::string::npos) {
+        return std::nullopt;
+    }
+    try {
+        return std::stoull(stem.substr(underscore + 1));
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 } // namespace
@@ -269,13 +283,8 @@ void NetworkEventSink::load_wal() {
     std::sort(segments.begin(), segments.end());
     uint64_t max_index = 0;
     for (const fs::path& segment : segments) {
-        const std::string stem = segment.stem().string();
-        const size_t underscore = stem.find_last_of('_');
-        if (underscore != std::string::npos) {
-            try {
-                max_index = std::max<uint64_t>(max_index, std::stoull(stem.substr(underscore + 1)));
-            } catch (...) {
-            }
+        if (const std::optional<uint64_t> index = wal_index_from_path(segment)) {
+            max_index = std::max(max_index, *index);
         }
         std::ifstream stream(segment, std::ios::in | std::ios::binary);
         std::string line;
@@ -304,14 +313,8 @@ bool NetworkEventSink::rewrite_wal_locked(size_t acked_count) {
     for (const auto& entry : fs::directory_iterator(wal_directory, ec)) {
         if (entry.is_regular_file() && entry.path().extension() == ".wal") {
             old_segments.push_back(entry.path());
-            const std::string stem = entry.path().stem().string();
-            const size_t underscore = stem.find_last_of('_');
-            if (underscore != std::string::npos) {
-                try {
-                    next_index =
-                        std::max<uint64_t>(next_index, std::stoull(stem.substr(underscore + 1)) + 1);
-                } catch (...) {
-                }
+            if (const std::optional<uint64_t> index = wal_index_from_path(entry.path())) {
+                next_index = std::max(next_index, *index + 1);
             }
         }
     }
@@ -332,8 +335,7 @@ bool NetworkEventSink::rewrite_wal_locked(size_t acked_count) {
 
         std::ofstream stream(segment.temporary_path, std::ios::out | std::ios::trunc | std::ios::binary);
         if (!stream) {
-            spdlog::error("failed to create temporary network WAL segment: path={}",
-                          segment.temporary_path.string());
+            spdlog::error("failed to create temporary network WAL segment: path={}", segment.temporary_path.string());
             return false;
         }
         while (record_index < remaining.size() &&
@@ -438,7 +440,7 @@ bool NetworkEventSink::post_batch(const std::vector<std::string>& batch) const {
     hints.ai_socktype = SOCK_STREAM;
     addrinfo* result = nullptr;
     const std::string port = std::to_string(endpoint_.port);
-    if (::getaddrinfo(endpoint_.host.c_str(), port.c_str(), &hints, &result) != 0 || !result) {
+    if (::getaddrinfo(endpoint_.host.c_str(), port.c_str(), &hints, &result) != 0 || result == nullptr) {
         spdlog::warn("network sink DNS resolution failed: host={} port={}", endpoint_.host, endpoint_.port);
         return false;
     }

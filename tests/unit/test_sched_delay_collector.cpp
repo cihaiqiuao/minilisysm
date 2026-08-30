@@ -43,7 +43,7 @@ uint64_t test_clock() {
     return test_now_ms;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     const fs::path mock_proc = "/tmp/mock_proc_sched";
@@ -63,20 +63,20 @@ int main() {
 
     write_file(mock_proc / "100" / "comm", "target_proc\n");
     write_file(mock_proc / "100" / "task" / "100" / "comm", "target_proc\n");
-    write_file(mock_proc / "100" / "task" / "100" / "sched", 
+    write_file(mock_proc / "100" / "task" / "100" / "sched",
                "cpu_clock                                    :             6188.083398\n"
                "se.statistics.wait_sum                       :             1000.000000\n"
                "nvcsw                                        :                  100057\n"
                "nr_involuntary_switches                      :                       5\n");
-               
+
     write_file(mock_proc / "100" / "task" / "101" / "comm", "target_thread\n");
-    write_file(mock_proc / "100" / "task" / "101" / "sched", 
+    write_file(mock_proc / "100" / "task" / "101" / "sched",
                "se.statistics.wait_sum                       :             2000.000000\n"
                "nr_involuntary_switches                      :                      10\n");
 
     write_file(mock_proc / "200" / "comm", "ignored_proc\n");
     write_file(mock_proc / "200" / "task" / "200" / "comm", "ignored_proc\n");
-    write_file(mock_proc / "200" / "task" / "200" / "sched", 
+    write_file(mock_proc / "200" / "task" / "200" / "sched",
                "se.statistics.wait_sum                       :              500.000000\n"
                "nr_involuntary_switches                      :                       1\n");
 
@@ -93,11 +93,11 @@ int main() {
     // Update mock files to simulate time passing and scheduling
     // thread 100: +500 wait_sum (1500), +2 nivcsw (7)
     // thread 101: +1000 wait_sum (3000), +5 nivcsw (15)
-    write_file(mock_proc / "100" / "task" / "100" / "sched", 
+    write_file(mock_proc / "100" / "task" / "100" / "sched",
                "se.statistics.wait_sum                       :             1500.000000\n"
                "nr_involuntary_switches                      :                       7\n");
-               
-    write_file(mock_proc / "100" / "task" / "101" / "sched", 
+
+    write_file(mock_proc / "100" / "task" / "101" / "sched",
                "se.statistics.wait_sum                       :             3000.000000\n"
                "nr_involuntary_switches                      :                      15\n");
 
@@ -108,16 +108,17 @@ int main() {
     bool found_100 = false;
     bool found_101 = false;
     for (const auto& sample : samples2) {
-        std::cerr << "Sample pid=" << sample.pid << " tid=" << sample.tid << " wait=" << sample.delta_wait_sum_us << "\n";
+        std::cerr << "Sample pid=" << sample.pid << " tid=" << sample.tid << " wait=" << sample.delta_wait_sum_us
+                  << "\n";
         CHECK(sample.valid);
         CHECK(sample.pid == 100);
         if (sample.tid == 100) {
             found_100 = true;
-            CHECK_EQ(sample.delta_wait_sum_us, 500000ULL); // 1500 - 1000 = 500 ms = 500,000 us
+            CHECK_EQ(sample.delta_wait_sum_us, 500000ULL);     // 1500 - 1000 = 500 ms = 500,000 us
             CHECK_EQ(sample.delta_involuntary_switches, 2ULL); // 7 - 5 = 2
         } else if (sample.tid == 101) {
             found_101 = true;
-            CHECK_EQ(sample.delta_wait_sum_us, 1000000ULL); // 3000 - 2000 = 1000 ms = 1,000,000 us
+            CHECK_EQ(sample.delta_wait_sum_us, 1000000ULL);    // 3000 - 2000 = 1000 ms = 1,000,000 us
             CHECK_EQ(sample.delta_involuntary_switches, 5ULL); // 15 - 10 = 5
         } else {
             CHECK(false); // unexpected tid
@@ -130,17 +131,19 @@ int main() {
     thread_config.sched_delay_enable = true;
     thread_config.sched_process_whitelist = {"target_proc"};
     thread_config.sched_thread_whitelist = {"target_thread"}; // Only thread 101
-    
+
     lisysm::SchedDelayCollector thread_collector(thread_config, mock_proc.string());
     CHECK(thread_collector.collect().empty()); // Baseline
-    
-    write_file(mock_proc / "100" / "task" / "100" / "sched", "se.statistics.wait_sum : 2000.0\nnr_involuntary_switches : 10\n");
-    write_file(mock_proc / "100" / "task" / "101" / "sched", "se.statistics.wait_sum : 4000.0\nnr_involuntary_switches : 20\n");
+
+    write_file(mock_proc / "100" / "task" / "100" / "sched",
+               "se.statistics.wait_sum : 2000.0\nnr_involuntary_switches : 10\n");
+    write_file(mock_proc / "100" / "task" / "101" / "sched",
+               "se.statistics.wait_sum : 4000.0\nnr_involuntary_switches : 20\n");
 
     std::vector<lisysm::SchedDelaySample> thread_samples = thread_collector.collect();
     CHECK(thread_samples.size() == 1);
     CHECK(thread_samples[0].tid == 101);
-    CHECK_EQ(thread_samples[0].delta_wait_sum_us, 1000000ULL); // 4000 - 3000 = 1000 ms = 1,000,000 us
+    CHECK_EQ(thread_samples[0].delta_wait_sum_us, 1000000ULL);    // 4000 - 3000 = 1000 ms = 1,000,000 us
     CHECK_EQ(thread_samples[0].delta_involuntary_switches, 5ULL); // 20 - 15 = 5
 
     // Test 4: Missing /proc directory

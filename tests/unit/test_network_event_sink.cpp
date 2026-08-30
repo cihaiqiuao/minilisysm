@@ -91,8 +91,7 @@ void run_delayed_response_server(uint16_t port, std::atomic<bool>* ready, std::a
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         if (allow_response->load()) {
-            const std::string response =
-                "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            const std::string response = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             ::send(client, response.data(), response.size(), MSG_NOSIGNAL);
         }
         ::close(client);
@@ -207,8 +206,7 @@ int main() {
         lisysm::MonitorConfig failure_config;
         failure_config.device_id = "network-publish-failure-test";
         failure_config.network_sink_enable = true;
-        failure_config.network_endpoint =
-            "http://127.0.0.1:" + std::to_string(failure_port) + "/events";
+        failure_config.network_endpoint = "http://127.0.0.1:" + std::to_string(failure_port) + "/events";
         failure_config.network_wal_path = failure_wal_path.string();
         failure_config.network_batch_size = 1;
         failure_config.network_flush_interval_ms = 10;

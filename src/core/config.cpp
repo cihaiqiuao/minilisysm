@@ -19,10 +19,10 @@ using Ini = std::unordered_map<std::string, Section>;
 std::string trim(std::string_view input) {
     size_t begin = 0;
     size_t end = input.size();
-    while (begin < end && std::isspace(static_cast<unsigned char>(input[begin]))) {
+    while (begin < end && std::isspace(static_cast<unsigned char>(input[begin])) != 0) {
         ++begin;
     }
-    while (end > begin && std::isspace(static_cast<unsigned char>(input[end - 1]))) {
+    while (end > begin && std::isspace(static_cast<unsigned char>(input[end - 1])) != 0) {
         --end;
     }
     return std::string(input.substr(begin, end - begin));
@@ -78,7 +78,7 @@ bool parse_bool(std::string_view value) {
 template <typename T>
 void assign_int(const Ini& ini, const char* section, const char* key, T& target) {
     const std::string* value = find_value(ini, section, key);
-    if (!value) {
+    if (value == nullptr) {
         return;
     }
     T parsed{};
@@ -91,21 +91,21 @@ void assign_int(const Ini& ini, const char* section, const char* key, T& target)
 
 void assign_bool(const Ini& ini, const char* section, const char* key, bool& target) {
     const std::string* value = find_value(ini, section, key);
-    if (value) {
+    if (value != nullptr) {
         target = parse_bool(*value);
     }
 }
 
 void assign_string(const Ini& ini, const char* section, const char* key, std::string& target) {
     const std::string* value = find_value(ini, section, key);
-    if (value) {
+    if (value != nullptr) {
         target = *value;
     }
 }
 
 void assign_double(const Ini& ini, const char* section, const char* key, double& target) {
     const std::string* value = find_value(ini, section, key);
-    if (!value) {
+    if (value == nullptr) {
         return;
     }
     try {
@@ -115,6 +115,7 @@ void assign_double(const Ini& ini, const char* section, const char* key, double&
             target = parsed;
         }
     } catch (...) {
+        return;
     }
 }
 
@@ -138,8 +139,8 @@ bool valid_ipv4(std::string_view value) {
     size_t offset = 0;
     for (uint32_t octet = 0; octet < 4; ++octet) {
         const size_t dot = value.find('.', offset);
-        const std::string_view part = value.substr(offset, dot == std::string_view::npos ? value.size() - offset
-                                                                                          : dot - offset);
+        const std::string_view part =
+            value.substr(offset, dot == std::string_view::npos ? value.size() - offset : dot - offset);
         unsigned int parsed = 0;
         const auto [parsed_end, parse_error] = std::from_chars(part.data(), part.data() + part.size(), parsed);
         if (part.empty() || parse_error != std::errc{} || parsed_end != part.data() + part.size() || parsed > 255) {
@@ -158,7 +159,7 @@ bool valid_ipv4(std::string_view value) {
 
 void assign_csv(const Ini& ini, const char* section, const char* key, std::vector<std::string>& target) {
     const std::string* value = find_value(ini, section, key);
-    if (value) {
+    if (value != nullptr) {
         target = split_csv(*value);
     }
 }
@@ -329,7 +330,7 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
     }
     for (const std::string& client : config.metrics_allowed_clients) {
         if (!valid_ipv4(client)) {
-            if (error) {
+            if (error != nullptr) {
                 *error = "metrics allowed_clients must contain valid IPv4 addresses";
             }
             return false;
@@ -361,7 +362,7 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
         config.critical_reserved_slots = config.event_queue_capacity - 1;
     }
     if (config.mem_available_critical_mb > config.mem_available_warning_mb) {
-        if (error) {
+        if (error != nullptr) {
             *error = "memory critical threshold must be lower than warning threshold";
         }
         config.memory_rule_enable = false;
@@ -427,7 +428,8 @@ bool ConfigLoader::validate(MonitorConfig& config, std::string* error) {
     if (config.process_memory_growth_recovery_mb > config.process_memory_growth_warning_mb) {
         config.process_memory_growth_recovery_mb = config.process_memory_growth_warning_mb;
     }
-    if (config.process_memory_growth_window_sec == 0) config.process_memory_growth_window_sec = 1;
+    if (config.process_memory_growth_window_sec == 0)
+        config.process_memory_growth_window_sec = 1;
     if (config.io_await_critical_ms < config.io_await_warning_ms) {
         config.io_await_critical_ms = config.io_await_warning_ms;
     }

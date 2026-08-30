@@ -84,6 +84,7 @@ std::optional<double> read_emmc_lifetime_percent(const std::filesystem::path& pa
                 max_bucket = std::max(max_bucket, value);
             }
         } catch (...) {
+            continue;
         }
     }
     if (max_bucket < 0) {
@@ -138,7 +139,7 @@ std::vector<BatteryHealthSample> HardwareHealthCollector::collect_batteries() co
         if (ec || !entry.is_directory(ec)) {
             continue;
         }
-        const std::filesystem::path dir = entry.path();
+        const std::filesystem::path& dir = entry.path();
         const std::optional<std::string> type = read_text(dir / "type");
         if (!type || *type != "Battery") {
             continue;
@@ -178,7 +179,7 @@ std::vector<StorageHealthSample> HardwareHealthCollector::collect_storage() cons
         if (ec || !entry.is_directory(ec)) {
             continue;
         }
-        const std::filesystem::path dir = entry.path();
+        const std::filesystem::path& dir = entry.path();
         const std::filesystem::path device_dir = dir / "device";
         StorageHealthSample sample;
         sample.device = dir.filename().string();

@@ -31,7 +31,7 @@ uint64_t test_clock() {
     return test_now_ms;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     const std::string test_file = "/tmp/mock_diskstats";
@@ -56,9 +56,8 @@ int main() {
     // Test 2: Second collection (calculate deltas)
     // sda: +10 read_ios, +20 read_time, +10 write_ios, +20 write_time, +1 in_flight, +10 io_time
     // nvme0n1: +0 read_ios, +0 read_time, +0 write_ios, +0 write_time, +0 in_flight, +0 io_time (idle)
-    write_file(test_file,
-               "   8       0 sda 110 0 1100 520 210 0 2100 1020 1 1510 1530\n"
-               " 259       0 nvme0n1 200 0 2000 1000 300 0 3000 1500 0 2500 2500\n");
+    write_file(test_file, "   8       0 sda 110 0 1100 520 210 0 2100 1020 1 1510 1530\n"
+                          " 259       0 nvme0n1 200 0 2000 1000 300 0 3000 1500 0 2500 2500\n");
 
     std::vector<lisysm::IoDelaySample> samples2 = collector.collect();
     CHECK(samples2.size() == 1);
@@ -85,15 +84,14 @@ int main() {
     whitelist_config.io_delay_enable = true;
     whitelist_config.io_device_whitelist = {"sda"};
     lisysm::IoDelayCollector wl_collector(whitelist_config, test_file);
-    
+
     // First run (baseline)
     CHECK(wl_collector.collect().empty());
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
+
     // Write new values
-    write_file(test_file,
-               "   8       0 sda 120 0 1200 540 220 0 2200 1040 2 1520 1560\n"
-               " 259       0 nvme0n1 210 0 2100 1010 310 0 3100 1510 0 2510 2510\n");
+    write_file(test_file, "   8       0 sda 120 0 1200 540 220 0 2200 1040 2 1520 1560\n"
+                          " 259       0 nvme0n1 210 0 2100 1010 310 0 3100 1510 0 2510 2510\n");
 
     std::vector<lisysm::IoDelaySample> wl_samples = wl_collector.collect();
     CHECK(wl_samples.size() == 1);
@@ -107,9 +105,8 @@ int main() {
     lisysm::MonitorConfig ttl_config = config;
     ttl_config.state_ttl_sec = 1;
     test_now_ms = 1'000;
-    write_file(test_file,
-               "   8       0 sda 100 0 1000 500 200 0 2000 1000 0 1500 1500\n"
-               " 259       0 nvme0n1 200 0 2000 1000 300 0 3000 1500 0 2500 2500\n");
+    write_file(test_file, "   8       0 sda 100 0 1000 500 200 0 2000 1000 0 1500 1500\n"
+                          " 259       0 nvme0n1 200 0 2000 1000 300 0 3000 1500 0 2500 2500\n");
     lisysm::IoDelayCollector ttl_collector(ttl_config, test_file, test_clock);
     CHECK(ttl_collector.collect().empty());
 
@@ -118,9 +115,8 @@ int main() {
     CHECK(ttl_collector.collect().size() == 1);
 
     test_now_ms = 2'600;
-    write_file(test_file,
-               "   8       0 sda 120 0 1200 540 220 0 2200 1040 1 1520 1560\n"
-               " 259       0 nvme0n1 220 0 2200 1020 320 0 3200 1520 0 2520 2520\n");
+    write_file(test_file, "   8       0 sda 120 0 1200 540 220 0 2200 1040 1 1520 1560\n"
+                          " 259       0 nvme0n1 220 0 2200 1020 320 0 3200 1520 0 2520 2520\n");
     const std::vector<lisysm::IoDelaySample> ttl_samples = ttl_collector.collect();
     CHECK(ttl_samples.size() == 1);
     CHECK(ttl_samples[0].device == "sda");

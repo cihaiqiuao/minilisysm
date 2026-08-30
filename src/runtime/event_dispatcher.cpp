@@ -77,7 +77,7 @@ void EventDispatcher::drain_source() {
 void EventDispatcher::dispatch(const InternalEvent& event) {
     consumed_events_.fetch_add(1);
     for (SpscRingBuffer<InternalEvent>* queue : sink_queues_) {
-        if (queue && !queue->push(event, event.level)) {
+        if (queue != nullptr && !queue->push(event, event.level)) {
             const uint64_t failures = sink_queue_push_failures_.fetch_add(1) + 1;
             if (failures == 1 || failures % 1000 == 0) {
                 spdlog::warn("dispatcher failed to push event into sink queue: failures={} event_type={} level={}",
@@ -92,7 +92,7 @@ EventDispatcherGroup::EventDispatcherGroup(const MonitorConfig& config,
                                            std::vector<std::unique_ptr<EventSink>> sinks)
     : config_(config), source_queues_(source_queues), sinks_(std::move(sinks)) {
     for (SpscRingBuffer<InternalEvent>* source_queue : source_queues_) {
-        if (!source_queue) {
+        if (source_queue == nullptr) {
             continue;
         }
         std::vector<SpscRingBuffer<InternalEvent>*> sink_queues;

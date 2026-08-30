@@ -22,14 +22,14 @@ bool set_current_thread_affinity(int cpu, std::string* error) {
     CPU_SET(cpu, &set);
     const int rc = pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
     if (rc != 0) {
-        if (error) {
+        if (error != nullptr) {
             *error = std::strerror(rc);
         }
         return false;
     }
     return true;
 #else
-    if (error) {
+    if (error != nullptr) {
         *error = "CPU affinity is only implemented on Linux";
     }
     return false;
@@ -40,7 +40,7 @@ bool set_current_thread_nice(int nice_value, std::string* error) {
 #if defined(__linux__)
     errno = 0;
     if (setpriority(PRIO_PROCESS, 0, nice_value) != 0) {
-        if (error) {
+        if (error != nullptr) {
             *error = std::strerror(errno);
         }
         return false;
@@ -48,7 +48,7 @@ bool set_current_thread_nice(int nice_value, std::string* error) {
     return true;
 #else
     (void)nice_value;
-    if (error) {
+    if (error != nullptr) {
         *error = "nice is only implemented on Linux";
     }
     return false;

@@ -392,8 +392,7 @@ bool MetricsServer::start() {
     running_.store(true);
     worker_ = std::thread(&MetricsServer::run, this);
     spdlog::info("metrics server started: metrics=http://{}:{}/metrics status=http://{}:{}/status",
-                 config_.metrics_bind_host, config_.metrics_port, config_.metrics_bind_host,
-                 config_.metrics_port);
+                 config_.metrics_bind_host, config_.metrics_port, config_.metrics_bind_host, config_.metrics_port);
     return true;
 }
 

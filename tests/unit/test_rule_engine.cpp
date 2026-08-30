@@ -21,7 +21,7 @@ uint64_t test_clock() {
     return test_now_ms;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     lisysm::MonitorConfig config;
@@ -220,17 +220,14 @@ int main() {
     process_memory_config.process_memory_growth_recovery_mb = 20;
     process_memory_config.process_memory_growth_window_sec = 600;
     lisysm::RuleEngine process_memory_rules(process_memory_config);
-    auto process_memory_warning =
-        process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 120.0);
+    auto process_memory_warning = process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 120.0);
     CHECK(process_memory_warning.has_value());
     CHECK(process_memory_warning->event_type == lisysm::EventType::WhitelistedProcessMemoryRisk);
     CHECK(process_memory_warning->level == lisysm::EventLevel::Warning);
-    auto process_memory_critical =
-        process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 220.0);
+    auto process_memory_critical = process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 220.0);
     CHECK(process_memory_critical.has_value());
     CHECK(process_memory_critical->level == lisysm::EventLevel::Critical);
-    auto process_memory_recovery =
-        process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 10.0);
+    auto process_memory_recovery = process_memory_rules.evaluate_process_memory_growth("train_stability", 42, 10.0);
     CHECK(process_memory_recovery.has_value());
     CHECK(process_memory_recovery->level == lisysm::EventLevel::Recovery);
     lisysm::MonitorConfig window_config = config;
@@ -495,14 +492,12 @@ int main() {
     lisysm::RuleEngine process_ttl_rules(process_ttl_config, test_clock);
 
     test_now_ms = 110'000;
-    auto first_process_warning =
-        process_ttl_rules.evaluate_process_memory_growth("train_stability", 51, 20.0);
+    auto first_process_warning = process_ttl_rules.evaluate_process_memory_growth("train_stability", 51, 20.0);
     CHECK(first_process_warning.has_value());
     CHECK(first_process_warning->level == lisysm::EventLevel::Warning);
 
     test_now_ms = 112'000;
-    auto other_process_warning =
-        process_ttl_rules.evaluate_process_memory_growth("train_stability", 52, 20.0);
+    auto other_process_warning = process_ttl_rules.evaluate_process_memory_growth("train_stability", 52, 20.0);
     CHECK(other_process_warning.has_value());
 
     test_now_ms = 114'000;

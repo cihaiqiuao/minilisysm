@@ -18,7 +18,7 @@ bool starts_with(const std::string& value, const char* prefix) {
 } // namespace
 
 IoDelayCollector::IoDelayCollector(const MonitorConfig& config, std::string diskstats_path, Clock clock)
-    : config_(config), diskstats_path_(std::move(diskstats_path)), clock_(clock ? clock : monotonic_ms) {}
+    : config_(config), diskstats_path_(std::move(diskstats_path)), clock_(clock != nullptr ? clock : monotonic_ms) {}
 
 std::vector<IoDelaySample> IoDelayCollector::collect() {
     last_failure_count_ = 0;

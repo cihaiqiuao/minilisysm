@@ -50,8 +50,9 @@ std::chrono::steady_clock::time_point next_deadline(std::chrono::steady_clock::t
 } // namespace
 
 Monitor::Monitor(MonitorConfig config)
-    : config_(std::move(config)), metrics_(config_), fast_queue_(config_.event_queue_capacity, config_.critical_reserved_slots,
-                                              config_.drop_info_when_full, config_.drop_warning_when_full),
+    : config_(std::move(config)), metrics_(config_),
+      fast_queue_(config_.event_queue_capacity, config_.critical_reserved_slots, config_.drop_info_when_full,
+                  config_.drop_warning_when_full),
       sched_queue_(config_.event_queue_capacity, config_.critical_reserved_slots, config_.drop_info_when_full,
                    config_.drop_warning_when_full),
       event_queues_{&fast_queue_, &sched_queue_},
@@ -337,8 +338,8 @@ QueueSnapshot Monitor::queue_snapshot() const {
 
 std::string Monitor::render_metrics() const {
     const QueueSnapshot queues = queue_snapshot();
-    const std::vector<std::pair<std::string, SinkStats>> sink_stats = dispatcher_ ? dispatcher_->sink_stats()
-                                                                                  : std::vector<std::pair<std::string, SinkStats>>{};
+    const std::vector<std::pair<std::string, SinkStats>> sink_stats =
+        dispatcher_ ? dispatcher_->sink_stats() : std::vector<std::pair<std::string, SinkStats>>{};
     return metrics_.render(running_.load(), next_sequence_.load(), queues, sink_stats, meminfo_failures_.load(),
                            cpu_usage_failures_.load(), self_status_failures_.load(), sched_delay_failures_.load(),
                            io_delay_failures_.load(), sched_delay_->runtime_stats());
@@ -391,7 +392,8 @@ void Monitor::record_whitelisted_process_metrics() {
             }
             if (history.size() > 1 && now - history.front().sampled_at >= window) {
                 const double growth_mb =
-                    (static_cast<double>(sample.rss_bytes) - static_cast<double>(history.front().rss_bytes)) / 1048576.0;
+                    (static_cast<double>(sample.rss_bytes) - static_cast<double>(history.front().rss_bytes)) /
+                    1048576.0;
                 if (auto event = fast_rules_->evaluate_process_memory_growth(sample.name, sample.pid, growth_mb)) {
                     publish_event(fast_queue_, *event);
                 }

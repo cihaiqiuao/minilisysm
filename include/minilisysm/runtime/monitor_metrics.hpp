@@ -32,8 +32,8 @@ class MonitorMetrics {
     void record_self_status(const SelfStatusSample& sample);
     void record_hardware_health(const HardwareHealthSample& sample);
     void record_whitelisted_process_status(const std::string& process, bool up);
-    void record_whitelisted_process_sample(const std::string& process, int pid, uint64_t rss_bytes,
-                                           uint64_t threads, double cpu_percent);
+    void record_whitelisted_process_sample(const std::string& process, int pid, uint64_t rss_bytes, uint64_t threads,
+                                           double cpu_percent);
     void record_sched_delay(const std::vector<SchedDelaySample>& samples);
     void record_io_delay(const IoDelaySample& sample);
 

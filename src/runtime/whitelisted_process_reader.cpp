@@ -24,7 +24,7 @@ std::optional<int32_t> parse_pid(const std::filesystem::path& process_path) {
 } // namespace
 
 std::optional<WhitelistedProcessSample> read_whitelisted_process_details(const std::filesystem::path& process_path,
-                                                                          int32_t pid, std::string name) {
+                                                                         int32_t pid, std::string name) {
     std::ifstream stat_file(process_path / "stat");
     std::string stat;
     if (!std::getline(stat_file, stat)) {
@@ -92,8 +92,7 @@ std::optional<WhitelistedProcessSample> read_whitelisted_process_details(const s
             std::istringstream value(line.substr(6));
             uint64_t rss_kb = 0;
             std::string unit;
-            if (!(value >> rss_kb >> unit) || unit != "kB" ||
-                rss_kb > std::numeric_limits<uint64_t>::max() / 1024) {
+            if (!(value >> rss_kb >> unit) || unit != "kB" || rss_kb > std::numeric_limits<uint64_t>::max() / 1024) {
                 return std::nullopt;
             }
             rss_bytes = rss_kb * 1024;
@@ -109,8 +108,8 @@ std::optional<WhitelistedProcessSample> read_whitelisted_process_details(const s
 }
 
 WhitelistedProcessScan scan_whitelisted_processes(const std::filesystem::path& proc_root,
-                                                   const std::vector<std::string>& whitelist,
-                                                   ProcessDetailsReader read_details) {
+                                                  const std::vector<std::string>& whitelist,
+                                                  const ProcessDetailsReader& read_details) {
     WhitelistedProcessScan result;
     std::error_code iterator_error;
     std::filesystem::directory_iterator current(proc_root, std::filesystem::directory_options::skip_permission_denied,

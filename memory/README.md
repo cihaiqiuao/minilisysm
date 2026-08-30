@@ -21,7 +21,7 @@
 - [2026-07-13-rk3588s-train-stability-monitoring.md](2026-07-13-rk3588s-train-stability-monitoring.md)：RK3588S 白名单进程资源指标、RSS 增长告警和 `/proc` 调度数据边界。
 - [2026-08-02-runtime-reliability.md](2026-08-02-runtime-reliability.md): cooldown, dynamic-state TTL, and Metrics IPv4 allowlist hardening.
 - [2026-08-30-performance-report-review.md](2026-08-30-performance-report-review.md)：实测性能报告的证据复核、口径问题、遗漏风险和修复优先级。
-- [2026-08-30-performance-report-fixes.md](2026-08-30-performance-report-fixes.md)：SIGTERM/停止延迟、TTL、窗口口径、WAL/JSONL 耐久性修复及最终验证。
+- [2026-08-30-performance-report-fixes.md](2026-08-30-performance-report-fixes.md)：SIGTERM/停止延迟、TTL、窗口口径、WAL/JSONL 耐久性及 CI 质量门禁修复与最终验证。
 ## 约束
 
 - 只记录项目上下文、设计决策、验证结果和后续计划。

@@ -9,7 +9,7 @@
 namespace lisysm {
 
 CpuUsageCollector::CpuUsageCollector(const MonitorConfig& config, std::string stat_path, Clock clock)
-    : config_(config), stat_path_(std::move(stat_path)), clock_(clock ? clock : monotonic_ms) {}
+    : config_(config), stat_path_(std::move(stat_path)), clock_(clock != nullptr ? clock : monotonic_ms) {}
 
 std::vector<CpuUsageSample> CpuUsageCollector::collect() {
     last_failure_count_ = 0;

@@ -110,14 +110,12 @@ struct {
     __type(value, struct aggregate_value);
 } aggregates SEC(".maps");
 
-static __always_inline struct sched_delay_counters* lookup_counters(void)
-{
+static __always_inline struct sched_delay_counters* lookup_counters(void) {
     const __u32 key = 0;
     return bpf_map_lookup_elem(&counters, &key);
 }
 
-static __always_inline void increment_ringbuf_drop(void)
-{
+static __always_inline void increment_ringbuf_drop(void) {
     struct sched_delay_counters* current = lookup_counters();
     if (!current) {
         return;
@@ -125,16 +123,8 @@ static __always_inline void increment_ringbuf_drop(void)
     __sync_fetch_and_add(&current->ringbuf_drops, 1);
 }
 
-static __always_inline int emit_event(
-    __u32 pid,
-    __u32 tid,
-    __u64 wait_ns,
-    __u64 switches,
-    __u64 max_wait_ns,
-    __u64 avg_wait_ns,
-    __u64 aggregate_count,
-    __u32 flags)
-{
+static __always_inline int emit_event(__u32 pid, __u32 tid, __u64 wait_ns, __u64 switches, __u64 max_wait_ns,
+                                      __u64 avg_wait_ns, __u64 aggregate_count, __u32 flags) {
     struct sched_delay_event* event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
     if (!event) {
         increment_ringbuf_drop();
@@ -152,13 +142,8 @@ static __always_inline int emit_event(
     return 1;
 }
 
-static __always_inline int aggregate_or_emit(
-    struct sched_delay_config* active_config,
-    __u32 pid,
-    __u32 tid,
-    __u64 delta_wait_ns,
-    __u64 now)
-{
+static __always_inline int aggregate_or_emit(struct sched_delay_config* active_config, __u32 pid, __u32 tid,
+                                             __u64 delta_wait_ns, __u64 now) {
     if (!active_config || !active_config->enable_aggregate) {
         return emit_event(pid, tid, delta_wait_ns, 1, delta_wait_ns, delta_wait_ns, 1, 0);
     }
@@ -203,8 +188,7 @@ static __always_inline int aggregate_or_emit(
 }
 
 SEC("tracepoint/sched/sched_switch")
-int on_sched_switch(struct trace_event_raw_sched_switch* ctx)
-{
+int on_sched_switch(struct trace_event_raw_sched_switch* ctx) {
     const __u64 now = bpf_ktime_get_ns();
     const __u64 current_pid_tgid = bpf_get_current_pid_tgid();
     const __u32 prev_tid = (__u32)ctx->prev_pid;
@@ -257,8 +241,7 @@ int on_sched_switch(struct trace_event_raw_sched_switch* ctx)
 }
 
 SEC("tracepoint/sched/sched_process_exec")
-int on_sched_process_exec(struct trace_event_raw_sched_process_exec* ctx)
-{
+int on_sched_process_exec(struct trace_event_raw_sched_process_exec* ctx) {
     const __u32 key = 0;
     struct sched_delay_config* active_config = bpf_map_lookup_elem(&bpf_config, &key);
     if (!active_config || !active_config->enable_lifecycle) {
@@ -273,8 +256,7 @@ int on_sched_process_exec(struct trace_event_raw_sched_process_exec* ctx)
 }
 
 SEC("tracepoint/sched/sched_process_exit")
-int on_sched_process_exit(struct trace_event_raw_sched_process_template* ctx)
-{
+int on_sched_process_exit(struct trace_event_raw_sched_process_template* ctx) {
     const __u32 key = 0;
     struct sched_delay_config* active_config = bpf_map_lookup_elem(&bpf_config, &key);
     if (!active_config || !active_config->enable_lifecycle) {

@@ -28,10 +28,10 @@ using ProcessDetailsReader =
     std::function<std::optional<WhitelistedProcessSample>(const std::filesystem::path&, int32_t, std::string)>;
 
 std::optional<WhitelistedProcessSample> read_whitelisted_process_details(const std::filesystem::path& process_path,
-                                                                          int32_t pid, std::string name);
+                                                                         int32_t pid, std::string name);
 
-WhitelistedProcessScan scan_whitelisted_processes(
-    const std::filesystem::path& proc_root, const std::vector<std::string>& whitelist,
-    ProcessDetailsReader read_details = read_whitelisted_process_details);
+WhitelistedProcessScan
+scan_whitelisted_processes(const std::filesystem::path& proc_root, const std::vector<std::string>& whitelist,
+                           const ProcessDetailsReader& read_details = read_whitelisted_process_details);
 
 } // namespace lisysm::detail

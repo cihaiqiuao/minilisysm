@@ -49,16 +49,14 @@ struct SchedDelayBpfCounters {
     uint64_t aggregate_drops;
 };
 
-std::string trim_newline(std::string value)
-{
+std::string trim_newline(std::string value) {
     while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) {
         value.pop_back();
     }
     return value;
 }
 
-bool read_comm(const std::string& path, std::string* comm)
-{
+bool read_comm(const std::string& path, std::string* comm) {
     std::ifstream input(path);
     if (!input) {
         return false;
@@ -69,13 +67,11 @@ bool read_comm(const std::string& path, std::string* comm)
     return !comm->empty();
 }
 
-bool contains_name(const std::vector<std::string>& names, const std::string& value)
-{
+bool contains_name(const std::vector<std::string>& names, const std::string& value) {
     return std::find(names.begin(), names.end(), value) != names.end();
 }
 
-bool parse_i32(const std::string& text, int32_t* value)
-{
+bool parse_i32(const std::string& text, int32_t* value) {
     try {
         size_t parsed_chars = 0;
         const int parsed = std::stoi(text, &parsed_chars);
@@ -94,8 +90,7 @@ bool parse_i32(const std::string& text, int32_t* value)
 struct EbpfSchedDelayCollector::Impl {
     explicit Impl(EbpfSchedDelayCollector* owner) : owner(owner) {}
 
-    ~Impl()
-    {
+    ~Impl() {
         if (ring_buffer_) {
             ring_buffer__free(ring_buffer_);
         }
@@ -104,8 +99,7 @@ struct EbpfSchedDelayCollector::Impl {
         }
     }
 
-    bool init()
-    {
+    bool init() {
         libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
         skel = sched_delay_bpf__open();
         if (!skel) {
@@ -124,8 +118,7 @@ struct EbpfSchedDelayCollector::Impl {
         return ring_buffer_ != nullptr;
     }
 
-    bool configure_maps()
-    {
+    bool configure_maps() {
         const uint32_t key = 0;
         const SchedDelayBpfConfig config{
             owner->config_.sched_ebpf_min_wait_us * 1000ULL,
@@ -147,8 +140,7 @@ struct EbpfSchedDelayCollector::Impl {
         return refresh_allowlists();
     }
 
-    bool refresh_allowlists()
-    {
+    bool refresh_allowlists() {
         const auto refresh_start = std::chrono::steady_clock::now();
         uint64_t scanned_processes = 0;
         uint64_t matched_pids = 0;
@@ -156,8 +148,7 @@ struct EbpfSchedDelayCollector::Impl {
         clear_u32_map(bpf_map__fd(skel->maps.pid_allowlist));
         clear_u32_map(bpf_map__fd(skel->maps.tid_allowlist));
 
-        if (owner->config_.sched_process_whitelist.empty() &&
-            owner->config_.sched_thread_whitelist.empty()) {
+        if (owner->config_.sched_process_whitelist.empty() && owner->config_.sched_thread_whitelist.empty()) {
             update_refresh_stats(refresh_start, scanned_processes, matched_pids, matched_tids);
             return true;
         }
@@ -218,24 +209,18 @@ struct EbpfSchedDelayCollector::Impl {
         return true;
     }
 
-    void update_refresh_stats(
-        std::chrono::steady_clock::time_point refresh_start,
-        uint64_t scanned_processes,
-        uint64_t matched_pids,
-        uint64_t matched_tids)
-    {
+    void update_refresh_stats(std::chrono::steady_clock::time_point refresh_start, uint64_t scanned_processes,
+                              uint64_t matched_pids, uint64_t matched_tids) {
         std::lock_guard<std::mutex> lock(runtime_stats_mutex_);
         runtime_stats.allowlist_scanned_processes = scanned_processes;
         runtime_stats.allowlist_matched_pids = matched_pids;
         runtime_stats.allowlist_matched_tids = matched_tids;
         runtime_stats.allowlist_refresh_elapsed_ms = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - refresh_start)
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - refresh_start)
                 .count());
     }
 
-    std::vector<SchedDelaySample> poll()
-    {
+    std::vector<SchedDelaySample> poll() {
         pending.clear();
         if (!ring_buffer_) {
             return {};
@@ -243,12 +228,10 @@ struct EbpfSchedDelayCollector::Impl {
         const auto now = std::chrono::steady_clock::now();
         const auto refresh = std::chrono::milliseconds(owner->config_.sched_ebpf_allowlist_refresh_ms);
         const SchedDelayBpfCounters counters = read_counters();
-        const uint64_t exec_delta = counters.allowlist_exec_seen >= last_exec_seen
-            ? counters.allowlist_exec_seen - last_exec_seen
-            : 0;
+        const uint64_t exec_delta =
+            counters.allowlist_exec_seen >= last_exec_seen ? counters.allowlist_exec_seen - last_exec_seen : 0;
         last_exec_seen = counters.allowlist_exec_seen;
-        if ((!owner->config_.sched_process_whitelist.empty() ||
-             !owner->config_.sched_thread_whitelist.empty()) &&
+        if ((!owner->config_.sched_process_whitelist.empty() || !owner->config_.sched_thread_whitelist.empty()) &&
             (now - last_filter_refresh >= refresh || exec_delta > 0)) {
             refresh_allowlists();
             last_filter_refresh = now;
@@ -261,8 +244,7 @@ struct EbpfSchedDelayCollector::Impl {
         return pending;
     }
 
-    static int handle_event(void* ctx, void* data, size_t size)
-    {
+    static int handle_event(void* ctx, void* data, size_t size) {
         if (size < sizeof(SchedDelayBpfEvent)) {
             return 0;
         }
@@ -271,8 +253,7 @@ struct EbpfSchedDelayCollector::Impl {
         return self->append_sample(*event);
     }
 
-    int append_sample(const SchedDelayBpfEvent& event)
-    {
+    int append_sample(const SchedDelayBpfEvent& event) {
         if (pending.size() >= owner->config_.sched_ebpf_max_events_per_poll) {
             return 1;
         }
@@ -289,8 +270,7 @@ struct EbpfSchedDelayCollector::Impl {
         return pending.size() >= owner->config_.sched_ebpf_max_events_per_poll ? 1 : 0;
     }
 
-    void clear_u32_map(int fd)
-    {
+    void clear_u32_map(int fd) {
         uint32_t key = 0;
         uint32_t next_key = 0;
         while (bpf_map_get_next_key(fd, nullptr, &next_key) == 0) {
@@ -299,8 +279,7 @@ struct EbpfSchedDelayCollector::Impl {
         }
     }
 
-    SchedDelayBpfCounters read_counters()
-    {
+    SchedDelayBpfCounters read_counters() {
         const uint32_t key = 0;
         SchedDelayBpfCounters counters{};
         if (bpf_map_lookup_elem(bpf_map__fd(skel->maps.counters), &key, &counters) != 0) {
@@ -317,8 +296,7 @@ struct EbpfSchedDelayCollector::Impl {
         return counters;
     }
 
-    uint64_t read_counter_delta(const SchedDelayBpfCounters& counters)
-    {
+    uint64_t read_counter_delta(const SchedDelayBpfCounters& counters) {
         if (!skel) {
             return 1;
         }
@@ -329,8 +307,7 @@ struct EbpfSchedDelayCollector::Impl {
         return delta;
     }
 
-    SchedDelayCollectorRuntimeStats runtime_stats_snapshot() const
-    {
+    SchedDelayCollectorRuntimeStats runtime_stats_snapshot() const {
         std::lock_guard<std::mutex> lock(runtime_stats_mutex_);
         return runtime_stats;
     }
@@ -348,10 +325,7 @@ struct EbpfSchedDelayCollector::Impl {
 };
 
 EbpfSchedDelayCollector::EbpfSchedDelayCollector(const MonitorConfig& config)
-    : config_(config),
-      impl_(std::make_unique<Impl>(this)),
-      fallback_(std::make_unique<SchedDelayCollector>(config))
-{
+    : config_(config), impl_(std::make_unique<Impl>(this)), fallback_(std::make_unique<SchedDelayCollector>(config)) {
     initialized_ = impl_->init();
     if (!initialized_) {
         last_failure_count_ = 1;
@@ -360,8 +334,7 @@ EbpfSchedDelayCollector::EbpfSchedDelayCollector(const MonitorConfig& config)
 
 EbpfSchedDelayCollector::~EbpfSchedDelayCollector() = default;
 
-std::vector<SchedDelaySample> EbpfSchedDelayCollector::collect()
-{
+std::vector<SchedDelaySample> EbpfSchedDelayCollector::collect() {
     last_failure_count_ = 0;
     if (!config_.sched_delay_enable) {
         return {};
@@ -379,15 +352,13 @@ std::vector<SchedDelaySample> EbpfSchedDelayCollector::collect()
     return samples;
 }
 
-bool EbpfSchedDelayCollector::accepts(int32_t pid, int32_t tid) const
-{
+bool EbpfSchedDelayCollector::accepts(int32_t pid, int32_t tid) const {
     (void)pid;
     (void)tid;
     return true;
 }
 
-SchedDelayCollectorRuntimeStats EbpfSchedDelayCollector::runtime_stats() const
-{
+SchedDelayCollectorRuntimeStats EbpfSchedDelayCollector::runtime_stats() const {
     return impl_ ? impl_->runtime_stats_snapshot() : SchedDelayCollectorRuntimeStats{};
 }
 

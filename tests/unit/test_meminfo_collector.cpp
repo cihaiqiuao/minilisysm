@@ -22,13 +22,12 @@ int main() {
     const std::string test_file = "/tmp/mock_meminfo";
 
     // Test 1: Valid data
-    write_file(test_file,
-               "MemTotal:       16301328 kB\n"
-               "MemFree:          123456 kB\n"
-               "MemAvailable:    8192000 kB\n"
-               "SwapFree:        4194304 kB\n"
-               "SReclaimable:     512000 kB\n"
-               "SUnreclaim:        64000 kB\n");
+    write_file(test_file, "MemTotal:       16301328 kB\n"
+                          "MemFree:          123456 kB\n"
+                          "MemAvailable:    8192000 kB\n"
+                          "SwapFree:        4194304 kB\n"
+                          "SReclaimable:     512000 kB\n"
+                          "SUnreclaim:        64000 kB\n");
 
     lisysm::MeminfoCollector valid_collector(test_file);
     lisysm::MeminfoSample sample = valid_collector.collect();

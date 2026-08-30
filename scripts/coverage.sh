@@ -31,6 +31,7 @@ ctest --test-dir "${BUILD_DIR}" --output-on-failure
 lcov --capture --directory "${BUILD_DIR}" --output-file "${RAW_INFO}"
 lcov \
     --remove "${RAW_INFO}" \
+    --ignore-errors unused \
     '/usr/*' \
     '*/tests/*' \
     '*/build/*' \

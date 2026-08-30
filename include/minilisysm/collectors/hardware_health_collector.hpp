@@ -37,8 +37,7 @@ struct HardwareHealthSample {
 class HardwareHealthCollector {
   public:
     HardwareHealthCollector(std::string power_supply_root = "/sys/class/power_supply",
-                            std::string block_root = "/sys/block",
-                            std::string edac_root = "/sys/devices/system/edac");
+                            std::string block_root = "/sys/block", std::string edac_root = "/sys/devices/system/edac");
 
     HardwareHealthSample collect() const;
 
